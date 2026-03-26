@@ -1,0 +1,130 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "Bash(git *)",
+      "Bash(curl *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(tree *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(npm *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(wc *)",
+      "Bash(stat *)",
+      "Bash(file *)",
+      "Bash(diff *)",
+      "Bash(du *)",
+      "Bash(df *)",
+      "Bash(which *)",
+      "Bash(ps *)",
+      "Bash(pgrep *)",
+      "Bash(service *)",
+      "Bash(env *)",
+      "Bash(printenv *)",
+      "Bash(uname *)",
+      "Bash(php *)",
+      "Bash(composer *)",
+      "Bash(npm *)",
+      "Bash(curl *)",
+      "Bash(python3 *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
+      "Bash(docker inspect *)",
+      "Bash(docker exec *)",
+      "Bash(sed *)",
+      "Bash(vendor/bin/sail *)",
+      "mcp__laravel-boost__*",
+      "Skill(*)",
+      "Bash(jq:*)",
+      "Bash(find /home/eric/code/advisor -name *.json -newer /home/eric/code/advisor/composer.json)",
+      "Bash(find /home/eric/code/advisor -name CLAUDE.md -o -name *.md -path */.claude/*)",
+      "Bash(./vendor/bin/sail up:*)",
+      "Bash(./vendor/bin/sail artisan:*)",
+      "Bash(./vendor/bin/sail ps:*)",
+      "Bash(curl -sL http://localhost/api/v1/ping)",
+      "Bash(./vendor/bin/sail down:*)",
+      "Bash(openssl req:*)",
+      "Bash(npm install:*)",
+      "Bash(npm pkg:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm run:*)",
+      "Bash(./node_modules/.bin/vite build:*)",
+      "Bash(npm show:*)",
+      "Bash(npm outdated:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm update:*)",
+      "Bash(npx npm-check-updates:*)",
+      "Bash(curl -sk https://localhost/api/v1/ping)",
+      "Bash(curl -sk http://localhost/api/v1/ping -H \"Accept: application/json\")",
+      "Bash(curl -sk --resolve \"localhost:443:127.0.0.1\" https://localhost/api/v1/ping -H \"Accept: application/json\")",
+      "Bash(./vendor/bin/sail exec:*)",
+      "Bash(sudo ss:*)",
+      "Bash(curl -si http://localhost/api/v1/ping -H \"Accept: application/json\")",
+      "Bash(docker ps:*)",
+      "Bash(curl -si http://172.20.0.4/api/v1/ping -H \"Accept: application/json\")",
+      "Bash(docker exec:*)",
+      "Bash(curl -si http://localhost/)",
+      "Bash(systemctl status:*)",
+      "Bash(service apache2:*)",
+      "Bash(./vendor/bin/sail mysql:*)",
+      "Bash(docker network:*)",
+      "Bash(grep -r advisor /home/eric/code/advisor --include=*.json --include=*.md --include=*.php --include=*.yaml --include=*.yml --include=*.env* -l)",
+      "Bash(grep -r advisor /home/eric/code/advisor --include=*.json --include=*.md --include=*.php --include=*.yaml --include=*.yml -l)",
+      "Bash(./vendor/bin/sail stop:*)",
+      "Bash(chmod:*)",
+      "Bash(bash -n /home/eric/code/replica/scripts/new-project.sh)",
+      "Bash(bash /home/eric/code/replica/scripts/tests/test-helpers.sh)",
+      "Bash(bash /home/eric/code/replica/scripts/new-project.sh)",
+      "Bash(BASE=/home/eric/code/advisor/advisor/advisor DEST=/home/eric/code/advisor __NEW_LINE_3d1412f46b22cefd__ find \"$BASE\" -type f ! -name \"*.Identifier\")",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//home/eric/code/advisor/**)",
+      "Bash(done)",
+      "Bash(__NEW_LINE_3fe7cd591e5b54cc__ mv:*)",
+      "Bash(__NEW_LINE_3fe7cd591e5b54cc__ rm:*)",
+      "Bash(for model:*)",
+      "Bash(do)",
+      "Bash(./vendor/bin/sail npm:*)",
+      "Bash(openssl x509:*)",
+      "Bash(echo $APP_URL)",
+      "Bash(node -e \"console.log\\(''APP_URL:'', process.env.APP_URL, ''APP_DOMAIN:'', process.env.APP_DOMAIN\\)\")"
+    ],
+    "deny": []
+  },
+  "enabledMcpjsonServers": [
+    "laravel-boost"
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -n --rawfile content remote.md '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":$content}}'",
+            "statusMessage": "Loading remote.md..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -q 'blade' && vendor/bin/sail artisan view:clear 2>/dev/null || true",
+            "statusMessage": "Clearing blade view cache..."
+          }
+        ]
+      }
+    ]
+  }
+}
