@@ -274,4 +274,87 @@ class ProcessSessionLearningTest extends TestCase
 
         $this->assertSame('Already Set', $session->fresh()->title);
     }
+
+    // --- JSON shape validation ---
+
+    public function test_skips_learning_missing_content(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(learnings: [
+            ['category' => 'blind_spot'], // missing content
+            ['category' => 'pattern', 'content' => 'Valid learning', 'confidence' => 0.7],
+        ]);
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertDatabaseCount('learnings', 1);
+        $this->assertDatabaseHas('learnings', ['content' => 'Valid learning']);
+    }
+
+    public function test_skips_learning_with_invalid_category(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(learnings: [
+            ['category' => 'made_up_category', 'content' => 'Some content', 'confidence' => 0.7],
+            ['category' => 'value', 'content' => 'Real learning', 'confidence' => 0.7],
+        ]);
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertDatabaseCount('learnings', 1);
+        $this->assertDatabaseHas('learnings', ['content' => 'Real learning']);
+    }
+
+    public function test_skips_learning_missing_category(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(learnings: [
+            ['content' => 'Content without category', 'confidence' => 0.7], // missing category
+        ]);
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertDatabaseCount('learnings', 0);
+    }
+
+    public function test_skips_observation_missing_key_or_value(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(observations: [
+            ['key' => 'risk_tolerance'],                           // missing value
+            ['value' => 'High'],                                   // missing key
+            ['key' => 'decision_speed', 'value' => 'Fast', 'confidence' => 0.7], // valid
+        ]);
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertDatabaseCount('profiles', 1);
+        $this->assertDatabaseHas('profiles', ['key' => 'decision_speed']);
+    }
+
+    public function test_skips_project_missing_name(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(projects: [
+            ['status' => 'active', 'description' => 'No name here'], // missing name
+            ['name' => 'Valid Project', 'status' => 'active'],       // valid
+        ]);
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertDatabaseCount('projects', 1);
+        $this->assertDatabaseHas('projects', ['name' => 'Valid Project']);
+    }
+
+    public function test_normalises_invalid_project_status_to_unclear(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(projects: [
+            ['name' => 'My App', 'status' => 'in_progress'], // not a valid status
+        ]);
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertDatabaseHas('projects', ['name' => 'My App', 'status' => 'unclear']);
+    }
 }

@@ -101,7 +101,19 @@ If nothing worth noting, return {\"learnings\": []}";
             ['role' => 'user', 'content' => $prompt],
         ]);
 
+        $validCategories = ['blind_spot', 'pattern', 'follow_through', 'value', 'reaction', 'domain'];
+
         foreach ($result['learnings'] ?? [] as $item) {
+            if (empty($item['category']) || empty($item['content'])) {
+                Log::warning('ProcessSessionLearning: skipping malformed learning item', ['item' => $item]);
+                continue;
+            }
+
+            if (!in_array($item['category'], $validCategories, true)) {
+                Log::warning('ProcessSessionLearning: skipping learning with invalid category', ['item' => $item]);
+                continue;
+            }
+
             // Check if a similar learning already exists
             $existing = Learning::where('user_id', $userId)
                 ->where('category', $item['category'])
@@ -117,12 +129,12 @@ If nothing worth noting, return {\"learnings\": []}";
                 $existing->reinforce();
             } else {
                 Learning::create([
-                    'user_id'           => $userId,
+                    'user_id'            => $userId,
                     'advisor_session_id' => $sessionId,
-                    'category'          => $item['category'],
-                    'content'           => $item['content'],
-                    'confidence'        => $item['confidence'] ?? 0.6,
-                    'last_seen_at'      => now(),
+                    'category'           => $item['category'],
+                    'content'            => $item['content'],
+                    'confidence'         => $item['confidence'] ?? 0.6,
+                    'last_seen_at'       => now(),
                 ]);
             }
         }
@@ -161,6 +173,11 @@ If nothing clear, return {\"observations\": []}";
         ]);
 
         foreach ($result['observations'] ?? [] as $obs) {
+            if (empty($obs['key']) || empty($obs['value'])) {
+                Log::warning('ProcessSessionLearning: skipping malformed observation', ['obs' => $obs]);
+                continue;
+            }
+
             Profile::record($userId, $obs['key'], $obs['value'], $obs['confidence'] ?? 0.5);
         }
     }
@@ -199,7 +216,18 @@ If no projects mentioned, return {\"projects\": []}";
             ['role' => 'user', 'content' => $prompt],
         ]);
 
+        $validStatuses = ['active', 'abandoned', 'completed', 'paused', 'unclear'];
+
         foreach ($result['projects'] ?? [] as $item) {
+            if (empty($item['name'])) {
+                Log::warning('ProcessSessionLearning: skipping malformed project item', ['item' => $item]);
+                continue;
+            }
+
+            if (!empty($item['status']) && !in_array($item['status'], $validStatuses, true)) {
+                $item['status'] = 'unclear';
+            }
+
             $project = Project::where('user_id', $userId)
                 ->whereRaw('LOWER(name) = ?', [strtolower($item['name'])])
                 ->first();

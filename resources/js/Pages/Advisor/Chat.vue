@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, nextTick, watch, onMounted } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { Link } from '@inertiajs/vue3';
+import { Link, router } from '@inertiajs/vue3';
 
 const props = defineProps({
     session: Object,
@@ -17,6 +17,54 @@ const lastFailedMessage = ref(null);
 const input = ref('');
 const messagesEl = ref(null);
 const inputEl = ref(null);
+
+/** Maps message index → rating (1–10) for messages rated this session. */
+const ratings = ref({});
+
+// --- Inline title editing ---
+const sessionTitle   = ref(props.session.title ?? '');
+const isEditingTitle = ref(false);
+const isSavingTitle  = ref(false);
+const titleInputEl   = ref(null);
+
+async function startEditingTitle() {
+    isEditingTitle.value = true;
+    await nextTick();
+    titleInputEl.value?.select();
+}
+
+async function saveTitle() {
+    const trimmed = sessionTitle.value.trim();
+    if (!trimmed) {
+        sessionTitle.value = props.session.title ?? '';
+        isEditingTitle.value = false;
+        return;
+    }
+
+    isEditingTitle.value = false;
+    isSavingTitle.value  = true;
+    try {
+        await window.axios.patch(`/api/v1/advisor/sessions/${props.session.id}`, { title: trimmed });
+    } catch {
+        // Non-critical — title just stays locally updated
+    } finally {
+        isSavingTitle.value = false;
+    }
+}
+
+function cancelEditingTitle() {
+    sessionTitle.value   = props.session.title ?? '';
+    isEditingTitle.value = false;
+}
+
+function handleTitleKeydown(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        saveTitle();
+    } else if (e.key === 'Escape') {
+        cancelEditingTitle();
+    }
+}
 const sessionTokens = ref({
     input: props.session.input_tokens ?? 0,
     output: props.session.output_tokens ?? 0,
@@ -168,6 +216,8 @@ async function closeSession() {
     try {
         await window.axios.post(`/api/v1/advisor/sessions/${props.session.id}/close`);
         isActive.value = false;
+        // Reload after the learning job has had time to generate the session title (~7s)
+        setTimeout(() => router.reload({ only: ['session'] }), 7000);
     } catch (e) {
         error.value = 'Failed to close session.';
     } finally {
@@ -179,6 +229,26 @@ function handleKeydown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
+    }
+}
+
+async function rateMessage(index, rating) {
+    if (ratings.value[index] !== undefined) return;
+
+    // Optimistically store the rating before the request resolves
+    ratings.value[index] = rating;
+
+    const message = messages.value[index];
+
+    try {
+        await window.axios.post(`/api/v1/advisor/sessions/${props.session.id}/rate`, {
+            rating,
+            context: rating >= 7 ? 'User gave thumbs up' : 'User gave thumbs down',
+            message_snippet: message?.content?.slice(0, 200) ?? null,
+        });
+    } catch {
+        // Roll back on failure so they can retry
+        delete ratings.value[index];
     }
 }
 </script>
@@ -193,9 +263,35 @@ function handleKeydown(e) {
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
-                    <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                        {{ session.title ?? 'Advisor' }}
-                    </h2>
+                    <!-- Inline title editing -->
+                    <div class="group flex items-center gap-1.5">
+                        <input
+                            v-if="isEditingTitle"
+                            ref="titleInputEl"
+                            v-model="sessionTitle"
+                            @keydown="handleTitleKeydown"
+                            @blur="saveTitle"
+                            maxlength="120"
+                            class="font-semibold text-xl text-gray-800 leading-tight bg-transparent border-b border-gray-400 focus:border-gray-800 focus:outline-none w-64"
+                        />
+                        <h2
+                            v-else
+                            class="font-semibold text-xl text-gray-800 leading-tight"
+                            :class="{ 'opacity-60': isSavingTitle }"
+                        >
+                            {{ sessionTitle || 'Untitled session' }}
+                        </h2>
+                        <button
+                            v-if="!isEditingTitle"
+                            @click="startEditingTitle"
+                            title="Edit title"
+                            class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition"
+                        >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="flex items-center gap-3">
@@ -229,8 +325,8 @@ function handleKeydown(e) {
                         <div
                             v-for="(msg, index) in messages"
                             :key="`${msg.timestamp}-${msg.role}-${index}`"
-                            class="flex"
-                            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+                            class="flex flex-col"
+                            :class="msg.role === 'user' ? 'items-end' : 'items-start'"
                         >
                             <div
                                 class="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
@@ -239,6 +335,39 @@ function handleKeydown(e) {
                                     : 'bg-gray-100 text-gray-800 rounded-bl-sm'"
                             >
                                 {{ msg.content }}
+                            </div>
+
+                            <!-- Rating buttons (assistant messages only) -->
+                            <div
+                                v-if="msg.role === 'assistant'"
+                                class="flex items-center gap-1 mt-1 px-1"
+                            >
+                                <button
+                                    @click="rateMessage(index, 8)"
+                                    :disabled="ratings[index] !== undefined"
+                                    :title="ratings[index] === 8 ? 'Helpful' : 'Mark as helpful'"
+                                    class="p-1 rounded transition"
+                                    :class="ratings[index] === 8
+                                        ? 'text-green-600'
+                                        : 'text-gray-300 hover:text-gray-500 disabled:cursor-default'"
+                                >
+                                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" />
+                                    </svg>
+                                </button>
+                                <button
+                                    @click="rateMessage(index, 3)"
+                                    :disabled="ratings[index] !== undefined"
+                                    :title="ratings[index] === 3 ? 'Not helpful' : 'Mark as not helpful'"
+                                    class="p-1 rounded transition"
+                                    :class="ratings[index] === 3
+                                        ? 'text-red-500'
+                                        : 'text-gray-300 hover:text-gray-500 disabled:cursor-default'"
+                                >
+                                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.105-1.79l-.05-.025A4 4 0 0011.055 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a4 4 0 00.8-2.4z" />
+                                    </svg>
+                                </button>
                             </div>
                         </div>
 

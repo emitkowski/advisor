@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\AdvisorSession;
+use App\Models\Learning;
 use App\Models\PersonalityTrait;
+use App\Models\Profile;
+use App\Models\Project;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -42,6 +45,28 @@ class AdvisorController extends Controller
 
         return Inertia::render('Advisor/Chat', [
             'session' => $session,
+        ]);
+    }
+
+    public function profile(): Response
+    {
+        $userId = Auth::id();
+
+        return Inertia::render('Advisor/Profile', [
+            'personalityTraits' => PersonalityTrait::where('user_id', $userId)
+                ->orderBy('trait')
+                ->get(['trait', 'value', 'description', 'is_system']),
+            'profileObservations' => Profile::where('user_id', $userId)
+                ->orderByDesc('confidence')
+                ->get(['id', 'key', 'value', 'confidence', 'observation_count']),
+            'learnings' => Learning::where('user_id', $userId)
+                ->orderBy('category')
+                ->orderByDesc('confidence')
+                ->get(['id', 'category', 'content', 'confidence', 'reinforcement_count', 'last_seen_at']),
+            'projects' => Project::where('user_id', $userId)
+                ->orderBy('status')
+                ->orderBy('name')
+                ->get(['name', 'description', 'status', 'notes', 'first_seen_at', 'last_seen_at']),
         ]);
     }
 }

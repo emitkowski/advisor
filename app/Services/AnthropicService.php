@@ -95,9 +95,10 @@ class AnthropicService
             throw new \RuntimeException('Anthropic streaming request failed');
         }
 
-        $buffer       = '';
-        $inputTokens  = 0;
-        $outputTokens = 0;
+        $buffer          = '';
+        $inputTokens     = 0;
+        $outputTokens    = 0;
+        $streamCompleted = false;
 
         $body = $response->toPsrResponse()->getBody();
 
@@ -120,7 +121,8 @@ class AnthropicService
                 $json = substr($line, 6);
 
                 if ($json === '[DONE]') {
-                    return ['input_tokens' => $inputTokens, 'output_tokens' => $outputTokens];
+                    $streamCompleted = true;
+                    break 2;
                 }
 
                 $event = json_decode($json, true);
@@ -141,8 +143,15 @@ class AnthropicService
                             yield $event['delta']['text'];
                         }
                         break;
+                    case 'message_stop':
+                        $streamCompleted = true;
+                        break;
                 }
             }
+        }
+
+        if (!$streamCompleted) {
+            throw new \RuntimeException('Stream ended without a completion event. The response may be incomplete.');
         }
 
         return ['input_tokens' => $inputTokens, 'output_tokens' => $outputTokens];

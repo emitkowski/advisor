@@ -13,8 +13,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/sessions', [ChatController::class, 'index'])->name('sessions.index');
         Route::post('/sessions', [ChatController::class, 'store'])->name('sessions.store');
         Route::get('/sessions/{session}', [ChatController::class, 'show'])->name('sessions.show');
+        Route::patch('/sessions/{session}', [ChatController::class, 'update'])->name('sessions.update');
         Route::post('/sessions/{session}/message', [ChatController::class, 'message'])->name('sessions.message')->middleware('throttle:20,1');
+        Route::post('/sessions/{session}/rate', [ChatController::class, 'rate'])->name('sessions.rate');
         Route::post('/sessions/{session}/close', [ChatController::class, 'close'])->name('sessions.close');
+
+        Route::patch('/personality-traits/{traitName}', [ChatController::class, 'updateTrait'])->name('personality-traits.update');
+        Route::delete('/learnings/{learningId}', [ChatController::class, 'deleteLearning'])->name('learnings.delete');
+        Route::delete('/profile-observations/{profileId}', [ChatController::class, 'deleteProfileObservation'])->name('profile-observations.delete');
+
         Route::get('/system-prompt', [ChatController::class, 'systemPrompt'])->name('system-prompt');
     });
 });

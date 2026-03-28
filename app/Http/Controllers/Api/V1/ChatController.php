@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Exceptions\UserFacingException;
 use App\Jobs\ProcessSessionLearning;
 use App\Models\AdvisorSession;
+use App\Models\Learning;
 use App\Models\PersonalityTrait;
+use App\Models\Profile;
 use App\Models\Signal;
 use App\Services\AnthropicService;
 use App\Services\SystemPromptBuilder;
@@ -60,6 +62,23 @@ class ChatController extends Controller
             ->findOrFail($sessionId);
 
         return response()->json($session);
+    }
+
+    /**
+     * Update session properties (currently: title).
+     */
+    public function update(Request $request, int $sessionId): JsonResponse
+    {
+        $request->validate([
+            'title' => 'required|string|max:120',
+        ]);
+
+        $session = AdvisorSession::where('user_id', Auth::id())
+            ->findOrFail($sessionId);
+
+        $session->update(['title' => $request->input('title')]);
+
+        return response()->json(['title' => $session->title]);
     }
 
     /**
@@ -176,6 +195,32 @@ class ChatController extends Controller
     }
 
     /**
+     * Record an explicit rating for a session response.
+     */
+    public function rate(Request $request, int $sessionId): JsonResponse
+    {
+        $request->validate([
+            'rating'          => 'required|numeric|min:1|max:10',
+            'context'         => 'nullable|string|max:500',
+            'message_snippet' => 'nullable|string|max:200',
+        ]);
+
+        $session = AdvisorSession::where('user_id', Auth::id())
+            ->findOrFail($sessionId);
+
+        Signal::create([
+            'user_id'            => $session->user_id,
+            'advisor_session_id' => $session->id,
+            'rating'             => $request->input('rating'),
+            'type'               => 'explicit',
+            'context'            => $request->input('context', 'User rated via UI'),
+            'message_snippet'    => $request->input('message_snippet'),
+        ]);
+
+        return response()->json(['message' => 'Rating recorded.'], 201);
+    }
+
+    /**
      * Close a session and trigger learning extraction.
      */
     public function close(int $sessionId): JsonResponse
@@ -199,6 +244,50 @@ class ChatController extends Controller
             'session_id' => $session->id,
             'avg_rating' => $session->avg_rating,
         ]);
+    }
+
+    /**
+     * Update a personality trait value.
+     */
+    public function updateTrait(Request $request, string $traitName): JsonResponse
+    {
+        $request->validate([
+            'value' => 'required|integer|min:0|max:100',
+        ]);
+
+        $trait = PersonalityTrait::where('user_id', Auth::id())
+            ->where('trait', $traitName)
+            ->firstOrFail();
+
+        $trait->update(['value' => $request->input('value')]);
+
+        return response()->json(['message' => 'Trait updated.', 'value' => $trait->value]);
+    }
+
+    /**
+     * Delete a learning record.
+     */
+    public function deleteLearning(int $learningId): JsonResponse
+    {
+        $learning = Learning::where('user_id', Auth::id())
+            ->findOrFail($learningId);
+
+        $learning->delete();
+
+        return response()->json(['message' => 'Learning deleted.']);
+    }
+
+    /**
+     * Delete a profile observation.
+     */
+    public function deleteProfileObservation(int $profileId): JsonResponse
+    {
+        $profile = Profile::where('user_id', Auth::id())
+            ->findOrFail($profileId);
+
+        $profile->delete();
+
+        return response()->json(['message' => 'Observation deleted.']);
     }
 
     /**
