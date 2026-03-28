@@ -142,7 +142,11 @@ async function sendMessage() {
         });
 
         if (!response.ok) {
-            throw new Error(`Request failed: ${response.status}`);
+            const body = await response.json().catch(() => ({}));
+            const message = body.errors
+                ? Object.values(body.errors).flat().join(' ')
+                : (body.message ?? `Request failed: ${response.status}`);
+            throw new Error(message);
         }
 
         const reader = response.body.getReader();

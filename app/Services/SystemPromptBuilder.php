@@ -75,10 +75,14 @@ PROMPT;
     }
 
     /**
-     * The Algorithm — structured decision process.
+     * The Algorithm — uses agent's algorithm if set, otherwise the default advisor process.
      */
     private function theAlgorithm(): string
     {
+        if ($this->agent?->algorithm) {
+            return $this->agent->algorithm;
+        }
+
         return <<<PROMPT
 # The Algorithm
 
