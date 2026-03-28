@@ -10,6 +10,8 @@ const props = defineProps({
 
 const showPicker = ref(false);
 const selectedAgentId = ref(null);
+const localSessions = ref([...props.sessions.data]);
+const deletingIds = ref(new Set());
 
 const form = useForm({ agent_id: null });
 
@@ -23,6 +25,22 @@ function startSession(agentId = null) {
     form.post(route('advisor.store'), {
         onFinish: () => { showPicker.value = false; },
     });
+}
+
+async function deleteSession(event, session) {
+    event.preventDefault();
+    if (!confirm(`Delete "${session.title ?? 'Untitled session'}"? This cannot be undone.`)) {
+        return;
+    }
+    deletingIds.value = new Set([...deletingIds.value, session.id]);
+    try {
+        await window.axios.delete(`/api/v1/advisor/sessions/${session.id}`);
+        localSessions.value = localSessions.value.filter((s) => s.id !== session.id);
+    } finally {
+        const next = new Set(deletingIds.value);
+        next.delete(session.id);
+        deletingIds.value = next;
+    }
 }
 
 function formatDate(dateStr) {
@@ -59,7 +77,7 @@ function formatCost(session) {
         <div class="py-12">
             <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
 
-                <div v-if="sessions.data.length === 0" class="bg-white rounded-lg shadow p-16 text-center">
+                <div v-if="localSessions.length === 0" class="bg-white rounded-lg shadow p-16 text-center">
                     <p class="text-gray-500 text-lg mb-6">No sessions yet. Start a conversation with your advisor.</p>
                     <button
                         @click="openPicker"
@@ -71,15 +89,17 @@ function formatCost(session) {
                 </div>
 
                 <div v-else class="bg-white rounded-lg shadow overflow-hidden">
-                    <Link
-                        v-for="session in sessions.data"
+                    <div
+                        v-for="session in localSessions"
                         :key="session.id"
-                        :href="route('advisor.show', session.id)"
-                        class="flex items-center justify-between px-6 py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition"
+                        class="flex items-center justify-between px-6 py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition group"
                     >
-                        <div class="flex items-center gap-4">
+                        <Link
+                            :href="route('advisor.show', session.id)"
+                            class="flex items-center gap-4 flex-1 min-w-0"
+                        >
                             <div class="w-2 h-2 rounded-full shrink-0" :class="session.ended_at ? 'bg-gray-300' : 'bg-green-400'" />
-                            <div>
+                            <div class="min-w-0">
                                 <div class="flex items-center gap-2">
                                     <span class="font-medium text-gray-800">
                                         {{ session.title ?? 'Untitled session' }}
@@ -101,18 +121,30 @@ function formatCost(session) {
                                     </template>
                                 </div>
                             </div>
-                        </div>
-                        <div class="flex items-center gap-4 text-sm text-gray-400">
+                        </Link>
+                        <div class="flex items-center gap-3 text-sm text-gray-400 shrink-0 ml-4">
                             <span v-if="session.avg_rating" class="font-medium text-gray-600">
                                 {{ session.avg_rating }}/10
                             </span>
                             <span v-if="!session.ended_at" class="text-green-600 font-medium">Active</span>
                             <span v-else>Closed</span>
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                            </svg>
+                            <button
+                                @click="deleteSession($event, session)"
+                                :disabled="deletingIds.has(session.id)"
+                                title="Delete session"
+                                class="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 disabled:opacity-40 transition"
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                            <Link :href="route('advisor.show', session.id)">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </Link>
                         </div>
-                    </Link>
+                    </div>
                 </div>
 
                 <!-- Pagination -->

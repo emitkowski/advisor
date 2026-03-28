@@ -18,6 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/sessions/{session}/message', [ChatController::class, 'message'])->name('sessions.message')->middleware('throttle:20,1');
         Route::post('/sessions/{session}/rate', [ChatController::class, 'rate'])->name('sessions.rate');
         Route::post('/sessions/{session}/close', [ChatController::class, 'close'])->name('sessions.close');
+        Route::delete('/sessions/{session}', [ChatController::class, 'destroy'])->name('sessions.destroy');
 
         Route::patch('/personality-traits/{traitName}', [ChatController::class, 'updateTrait'])->name('personality-traits.update');
         Route::delete('/learnings/{learningId}', [ChatController::class, 'deleteLearning'])->name('learnings.delete');

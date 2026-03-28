@@ -234,6 +234,19 @@ class ChatController extends Controller
     }
 
     /**
+     * Delete a session and its associated signals.
+     */
+    public function destroy(int $sessionId): JsonResponse
+    {
+        $session = AdvisorSession::where('user_id', Auth::id())
+            ->findOrFail($sessionId);
+
+        $session->delete();
+
+        return response()->json(['message' => 'Session deleted.']);
+    }
+
+    /**
      * Close a session and trigger learning extraction.
      */
     public function close(int $sessionId): JsonResponse
