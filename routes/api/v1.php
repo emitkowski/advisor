@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AgentController;
 use App\Http\Controllers\Api\V1\ChatController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -23,5 +24,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/profile-observations/{profileId}', [ChatController::class, 'deleteProfileObservation'])->name('profile-observations.delete');
 
         Route::get('/system-prompt', [ChatController::class, 'systemPrompt'])->name('system-prompt');
+
+        Route::get('/agents', [AgentController::class, 'index'])->name('agents.index');
+        Route::post('/agents', [AgentController::class, 'store'])->name('agents.store');
+        Route::get('/agents/{agentId}', [AgentController::class, 'show'])->name('agents.show');
+        Route::patch('/agents/{agentId}', [AgentController::class, 'update'])->name('agents.update');
+        Route::delete('/agents/{agentId}', [AgentController::class, 'destroy'])->name('agents.destroy');
     });
 });

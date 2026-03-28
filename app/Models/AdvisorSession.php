@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
+use App\Models\Agent;
 
 class AdvisorSession extends Model
 {
@@ -15,6 +16,7 @@ class AdvisorSession extends Model
 
     protected $fillable = [
         'user_id',
+        'agent_id',
         'title',
         'thread',
         'meta',
@@ -43,6 +45,11 @@ class AdvisorSession extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(Agent::class);
     }
 
     public function signals(): HasMany

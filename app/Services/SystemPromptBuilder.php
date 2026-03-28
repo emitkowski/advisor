@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Agent;
 use App\Models\Learning;
 use App\Models\PersonalityTrait;
 use App\Models\Profile;
@@ -10,12 +11,10 @@ use App\Models\Signal;
 
 class SystemPromptBuilder
 {
-    private int $userId;
-
-    public function __construct(int $userId)
-    {
-        $this->userId = $userId;
-    }
+    public function __construct(
+        private int $userId,
+        private ?Agent $agent = null,
+    ) {}
 
     /**
      * Build the full system prompt for a conversation.
@@ -34,10 +33,14 @@ class SystemPromptBuilder
     }
 
     /**
-     * Core identity and non-negotiable rules.
+     * Core identity — uses agent's preamble if one is set, otherwise the default advisor identity.
      */
     private function coreIdentity(): string
     {
+        if ($this->agent) {
+            return $this->agent->system_prompt_preamble;
+        }
+
         return <<<PROMPT
 # Your Identity
 
@@ -72,8 +75,7 @@ PROMPT;
     }
 
     /**
-     * The Algorithm — structured 7-phase decision process.
-     * Simplified from PAI's full implementation for conversational use.
+     * The Algorithm — structured decision process.
      */
     private function theAlgorithm(): string
     {
@@ -130,15 +132,20 @@ PROMPT;
     }
 
     /**
-     * Personality traits injected dynamically from DB.
+     * Personality block — from agent if set, otherwise from user's PersonalityTrait records.
      */
     private function personalityBlock(): string
     {
+        if ($this->agent) {
+            return $this->agent->buildPersonalityBlock();
+        }
+
         return PersonalityTrait::buildPersonalityBlock($this->userId);
     }
 
     /**
      * All memory context: learnings, profile, projects, recent signals.
+     * Always tied to the user regardless of which agent is active.
      */
     private function memoryContext(): string
     {

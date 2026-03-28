@@ -1,10 +1,9 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { Link } from '@inertiajs/vue3';
-import { computed, reactive, ref } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
-    personalityTraits: Array,
     profileObservations: Array,
     learnings: Array,
     projects: Array,
@@ -26,32 +25,6 @@ const PROJECT_STATUSES = {
     abandoned: { label: 'Abandoned',  color: 'bg-red-100 text-red-800' },
     unclear:   { label: 'Unclear',    color: 'bg-gray-100 text-gray-600' },
 };
-
-// --- Personality traits ---
-
-/** Current slider values, keyed by trait name */
-const traitValues = reactive(
-    Object.fromEntries(props.personalityTraits.map((t) => [t.trait, t.value]))
-);
-/** Traits currently being saved */
-const savingTraits = ref(new Set());
-
-function traitChanged(traitName) {
-    return traitValues[traitName] !== props.personalityTraits.find((t) => t.trait === traitName)?.value;
-}
-
-async function saveTrait(traitName) {
-    savingTraits.value = new Set([...savingTraits.value, traitName]);
-    try {
-        await window.axios.patch(`/api/v1/advisor/personality-traits/${traitName}`, {
-            value: traitValues[traitName],
-        });
-    } finally {
-        const next = new Set(savingTraits.value);
-        next.delete(traitName);
-        savingTraits.value = next;
-    }
-}
 
 // --- Profile observations ---
 
@@ -155,7 +128,7 @@ function formatDate(dateStr) {
 
                 <!-- Empty state -->
                 <div
-                    v-if="!personalityTraits.length && !localObservations.length && !localLearnings.length && !projects.length"
+                    v-if="!localObservations.length && !localLearnings.length && !projects.length"
                     class="bg-white rounded-lg shadow p-16 text-center"
                 >
                     <p class="text-gray-500 text-lg mb-2">Nothing here yet.</p>
@@ -163,40 +136,6 @@ function formatDate(dateStr) {
                     <Link :href="route('advisor.index')" class="mt-6 inline-flex items-center px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-md hover:bg-gray-700 transition">
                         Go to Sessions
                     </Link>
-                </div>
-
-                <!-- Personality -->
-                <div v-if="personalityTraits.length" class="bg-white rounded-lg shadow overflow-hidden">
-                    <div class="px-6 py-4 border-b border-gray-100">
-                        <h3 class="font-semibold text-gray-800">Advisor Personality</h3>
-                        <p class="text-sm text-gray-500 mt-0.5">Drag to adjust how the advisor works with you</p>
-                    </div>
-                    <div class="divide-y divide-gray-50">
-                        <div v-for="trait in personalityTraits" :key="trait.trait" class="px-6 py-4">
-                            <div class="flex items-center justify-between mb-2">
-                                <span class="text-sm font-medium text-gray-700 capitalize">{{ trait.trait.replace(/_/g, ' ') }}</span>
-                                <div class="flex items-center gap-3">
-                                    <span class="text-sm tabular-nums text-gray-500 w-12 text-right">{{ traitValues[trait.trait] }}/100</span>
-                                    <button
-                                        v-if="traitChanged(trait.trait)"
-                                        @click="saveTrait(trait.trait)"
-                                        :disabled="savingTraits.has(trait.trait)"
-                                        class="text-xs px-2 py-0.5 bg-gray-800 text-white rounded hover:bg-gray-700 disabled:opacity-50 transition"
-                                    >
-                                        {{ savingTraits.has(trait.trait) ? 'Saving…' : 'Save' }}
-                                    </button>
-                                </div>
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                v-model.number="traitValues[trait.trait]"
-                                class="w-full h-1.5 accent-gray-800 cursor-pointer"
-                            />
-                            <p v-if="trait.description" class="text-xs text-gray-400 mt-1.5">{{ trait.description }}</p>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Profile observations -->

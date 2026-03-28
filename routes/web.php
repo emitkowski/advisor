@@ -17,5 +17,8 @@ Route::middleware([
     Route::get('/advisor', [AdvisorController::class, 'index'])->name('advisor.index');
     Route::post('/advisor', [AdvisorController::class, 'store'])->name('advisor.store');
     Route::get('/advisor/profile', [AdvisorController::class, 'profile'])->name('advisor.profile');
+    Route::get('/advisor/agents', [AdvisorController::class, 'agents'])->name('advisor.agents');
+    Route::get('/advisor/agents/create', [AdvisorController::class, 'agentCreate'])->name('advisor.agents.create');
+    Route::get('/advisor/agents/{agentId}/edit', [AdvisorController::class, 'agentEdit'])->name('advisor.agents.edit');
     Route::get('/advisor/{session}', [AdvisorController::class, 'show'])->name('advisor.show');
 });

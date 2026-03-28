@@ -263,6 +263,15 @@ async function rateMessage(index, rating) {
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
+                    <!-- Active agent badge -->
+                    <span
+                        v-if="session.agent"
+                        class="text-xs px-2 py-0.5 rounded-full font-medium"
+                        :style="{ backgroundColor: (session.agent.color || '#6B7280') + '20', color: session.agent.color || '#6B7280' }"
+                    >
+                        {{ session.agent.name }}
+                    </span>
+
                     <!-- Inline title editing -->
                     <div class="group flex items-center gap-1.5">
                         <input
@@ -312,8 +321,8 @@ async function rateMessage(index, rating) {
         </template>
 
         <div class="py-6">
-            <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="bg-white rounded-lg shadow-xl flex flex-col overflow-hidden" style="height: calc(100vh - 10rem)">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="bg-white rounded-lg shadow-xl flex flex-col overflow-hidden" style="height: calc(100vh - 14rem)">
 
                     <!-- Messages -->
                     <div ref="messagesEl" class="flex-1 overflow-y-auto p-6 space-y-6">

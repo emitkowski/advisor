@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Exceptions\UserFacingException;
 use App\Jobs\ProcessSessionLearning;
+use App\Models\Agent;
 use App\Models\AdvisorSession;
 use App\Models\Learning;
 use App\Models\PersonalityTrait;
@@ -40,17 +41,28 @@ class ChatController extends Controller
     /**
      * Create a new session.
      */
-    public function store(): JsonResponse
+    public function store(Request $request): JsonResponse
     {
-        // Ensure user has personality traits seeded
+        $request->validate([
+            'agent_id' => 'nullable|integer',
+        ]);
+
         PersonalityTrait::seedDefaults(Auth::id());
+        Agent::seedDefaults(Auth::id());
+
+        $agentId = null;
+        if ($request->filled('agent_id')) {
+            $agent   = Agent::where('user_id', Auth::id())->findOrFail($request->input('agent_id'));
+            $agentId = $agent->id;
+        }
 
         $session = AdvisorSession::create([
             'user_id'    => Auth::id(),
+            'agent_id'   => $agentId,
             'started_at' => now(),
         ]);
 
-        return response()->json($session, 201);
+        return response()->json($session->load('agent'), 201);
     }
 
     /**
@@ -97,6 +109,7 @@ class ChatController extends Controller
         // Atomically validate session state and record idempotency key
         $session = DB::transaction(function () use ($sessionId, $idempotencyKey) {
             $session = AdvisorSession::where('user_id', Auth::id())
+                ->with('agent')
                 ->lockForUpdate()
                 ->findOrFail($sessionId);
 
@@ -131,7 +144,7 @@ class ChatController extends Controller
         ]);
 
         // Build system prompt with all memory context
-        $systemPrompt = (new SystemPromptBuilder(Auth::id()))->build();
+        $systemPrompt = (new SystemPromptBuilder(Auth::id(), $session->agent))->build();
 
         return response()->stream(function () use ($session, $systemPrompt, $messages, $userMessage, $explicitRating) {
             $fullResponse = '';

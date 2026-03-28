@@ -3,7 +3,6 @@
 namespace Tests\Feature\Advisor;
 
 use App\Models\Learning;
-use App\Models\PersonalityTrait;
 use App\Models\Profile;
 use App\Models\Project;
 use App\Models\User;
@@ -27,16 +26,6 @@ class ProfilePageTest extends TestCase
             ->get(route('advisor.profile'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Advisor/Profile'));
-    }
-
-    public function test_profile_page_passes_personality_traits(): void
-    {
-        $user = User::factory()->create();
-        PersonalityTrait::factory()->count(3)->create(['user_id' => $user->id]);
-
-        $this->actingAs($user)
-            ->get(route('advisor.profile'))
-            ->assertInertia(fn ($page) => $page->has('personalityTraits', 3));
     }
 
     public function test_profile_page_passes_profile_observations(): void
@@ -74,18 +63,12 @@ class ProfilePageTest extends TestCase
         $user  = User::factory()->create();
         $other = User::factory()->create();
 
-        PersonalityTrait::factory()->count(3)->create(['user_id' => $user->id]);
-        PersonalityTrait::factory()->count(5)->create(['user_id' => $other->id]);
-
         Learning::factory()->count(2)->create(['user_id' => $user->id]);
         Learning::factory()->count(4)->create(['user_id' => $other->id]);
 
         $this->actingAs($user)
             ->get(route('advisor.profile'))
-            ->assertInertia(fn ($page) => $page
-                ->has('personalityTraits', 3)
-                ->has('learnings', 2)
-            );
+            ->assertInertia(fn ($page) => $page->has('learnings', 2));
     }
 
     public function test_profile_page_returns_empty_collections_when_no_data(): void
@@ -95,7 +78,6 @@ class ProfilePageTest extends TestCase
         $this->actingAs($user)
             ->get(route('advisor.profile'))
             ->assertInertia(fn ($page) => $page
-                ->has('personalityTraits', 0)
                 ->has('profileObservations', 0)
                 ->has('learnings', 0)
                 ->has('projects', 0)

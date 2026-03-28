@@ -48,8 +48,14 @@ const logout = () => {
 
                             <!-- Navigation Links -->
                             <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                                <NavLink :href="route('advisor.index')" :active="route().current('advisor.*')">
-                                    Advisor
+                                <NavLink :href="route('advisor.index')" :active="route().current('advisor.index') || route().current('advisor.show')">
+                                    Sessions
+                                </NavLink>
+                                <NavLink :href="route('advisor.agents')" :active="route().current('advisor.agents*')">
+                                    Agents
+                                </NavLink>
+                                <NavLink :href="route('advisor.profile')" :active="route().current('advisor.profile')">
+                                    What I Know About You
                                 </NavLink>
                             </div>
                         </div>
@@ -191,8 +197,14 @@ const logout = () => {
                 <!-- Responsive Navigation Menu -->
                 <div :class="{'block': showingNavigationDropdown, 'hidden': ! showingNavigationDropdown}" class="sm:hidden">
                     <div class="pt-2 pb-3 space-y-1">
-                        <ResponsiveNavLink :href="route('advisor.index')" :active="route().current('advisor.*')">
-                            Advisor
+                        <ResponsiveNavLink :href="route('advisor.index')" :active="route().current('advisor.index') || route().current('advisor.show')">
+                            Sessions
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink :href="route('advisor.agents')" :active="route().current('advisor.agents*')">
+                            Agents
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink :href="route('advisor.profile')" :active="route().current('advisor.profile')">
+                            What I Know About You
                         </ResponsiveNavLink>
                     </div>
 
