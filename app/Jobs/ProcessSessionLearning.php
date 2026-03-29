@@ -40,14 +40,17 @@ class ProcessSessionLearning implements ShouldQueue
         }
 
         $userId      = $session->user_id;
+        $teamId      = $session->user->currentOrOwnedTeam()?->id;
         $threadText  = $this->formatThreadForAnalysis($session->thread);
 
         try {
             $this->generateTitle($claude, $session, $threadText);
+            $this->generateSummary($claude, $session, $threadText);
             $this->extractLearnings($claude, $userId, $session->id, $threadText);
             $this->extractProfiles($claude, $userId, $threadText);
-            $this->extractProjects($claude, $userId, $session->id, $threadText);
+            $this->extractProjects($claude, $userId, $teamId, $session->id, $threadText);
             $this->inferImplicitRating($claude, $userId, $session->id, $threadText);
+            $session->update(['learnings_extracted_at' => now()]);
         } catch (\Throwable $e) {
             Log::error('ProcessSessionLearning failed', [
                 'session_id' => $this->sessionId,
@@ -188,6 +191,7 @@ If nothing clear, return {\"observations\": []}";
     private function extractProjects(
         AnthropicService $claude,
         int $userId,
+        ?int $teamId,
         int $sessionId,
         string $thread
     ): void {
@@ -228,7 +232,12 @@ If no projects mentioned, return {\"projects\": []}";
                 $item['status'] = 'unclear';
             }
 
-            $project = Project::where('user_id', $userId)
+            $project = Project::where(function ($q) use ($userId, $teamId) {
+                    $q->where('user_id', $userId);
+                    if ($teamId) {
+                        $q->orWhere('team_id', $teamId);
+                    }
+                })
                 ->whereRaw('LOWER(name) = ?', [strtolower($item['name'])])
                 ->first();
 
@@ -241,12 +250,13 @@ If no projects mentioned, return {\"projects\": []}";
                 $project->recordMention($sessionId);
             } else {
                 Project::create([
-                    'user_id'      => $userId,
-                    'name'         => $item['name'],
-                    'status'       => $item['status'] ?? 'unclear',
-                    'description'  => $item['description'] ?? null,
-                    'notes'        => $item['notes'] ?? null,
-                    'mentions'     => [$sessionId],
+                    'user_id'       => $userId,
+                    'team_id'       => $teamId,
+                    'name'          => $item['name'],
+                    'status'        => $item['status'] ?? 'unclear',
+                    'description'   => $item['description'] ?? null,
+                    'notes'         => $item['notes'] ?? null,
+                    'mentions'      => [$sessionId],
                     'first_seen_at' => now(),
                     'last_seen_at'  => now(),
                 ]);
@@ -299,6 +309,24 @@ Only analyze the USER messages, not the assistant messages.";
             'sentiment'          => $result['sentiment'] ?? 0.5,
             'context'            => $result['reasoning'] ?? null,
         ]);
+    }
+
+    /**
+     * Generate a 2–4 sentence summary of the session for sharing.
+     */
+    private function generateSummary(AnthropicService $claude, AdvisorSession $session, string $thread): void
+    {
+        $result = $claude->completeJson(
+            'Summarize conversations for sharing with colleagues. Return only JSON.',
+            [[
+                'role'    => 'user',
+                'content' => "Write a concise summary of this conversation (2–4 sentences) that a colleague could read to quickly understand what was discussed and any conclusions reached. Write in third person (\"The user explored...\"). Be specific, not generic.\n\nConversation:\n{$thread}\n\nReturn JSON: {\"summary\": \"...\"}",
+            ]]
+        );
+
+        if (!empty($result['summary'])) {
+            $session->update(['summary' => $result['summary']]);
+        }
     }
 
     /**

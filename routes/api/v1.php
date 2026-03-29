@@ -2,10 +2,14 @@
 
 use App\Http\Controllers\Api\V1\AgentController;
 use App\Http\Controllers\Api\V1\ChatController;
+use App\Http\Controllers\Api\V1\TeamController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/ping', fn () => ['message' => 'pong', 'timestamp' => now()->toIso8601String()])->name('ping');
+
+// Public invitation endpoint — no auth required
+Route::get('/advisor/teams/invitations/{token}', [TeamController::class, 'showInvitation'])->name('advisor.teams.invitations.show');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (Request $request) => $request->user());
@@ -18,6 +22,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/sessions/{session}/message', [ChatController::class, 'message'])->name('sessions.message')->middleware('throttle:20,1');
         Route::post('/sessions/{session}/rate', [ChatController::class, 'rate'])->name('sessions.rate');
         Route::post('/sessions/{session}/close', [ChatController::class, 'close'])->name('sessions.close');
+        Route::post('/sessions/{session}/share', [ChatController::class, 'share'])->name('sessions.share');
+        Route::delete('/sessions/{session}/share', [ChatController::class, 'unshare'])->name('sessions.unshare');
         Route::delete('/sessions/{session}', [ChatController::class, 'destroy'])->name('sessions.destroy');
 
         Route::patch('/personality-traits/{traitName}', [ChatController::class, 'updateTrait'])->name('personality-traits.update');
@@ -25,6 +31,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/profile-observations/{profileId}', [ChatController::class, 'deleteProfileObservation'])->name('profile-observations.delete');
 
         Route::get('/system-prompt', [ChatController::class, 'systemPrompt'])->name('system-prompt');
+
+        Route::get('/teams/current', [TeamController::class, 'current'])->name('teams.current');
+        Route::post('/teams', [TeamController::class, 'store'])->name('teams.store');
+        Route::post('/teams/invite', [TeamController::class, 'invite'])->name('teams.invite');
+        Route::post('/teams/invitations/{token}/accept', [TeamController::class, 'acceptInvitation'])->name('teams.invitations.accept');
+        Route::delete('/teams/members/{userId}', [TeamController::class, 'removeMember'])->name('teams.members.destroy');
+        Route::delete('/teams', [TeamController::class, 'destroy'])->name('teams.destroy');
 
         Route::get('/agents', [AgentController::class, 'index'])->name('agents.index');
         Route::post('/agents', [AgentController::class, 'store'])->name('agents.store');

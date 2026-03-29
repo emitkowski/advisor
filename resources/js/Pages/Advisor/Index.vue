@@ -1,11 +1,12 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { Link, useForm } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { Link, useForm, router } from '@inertiajs/vue3';
+import { ref, watch } from 'vue';
 
 const props = defineProps({
     sessions: Object,
     agents: Array,
+    filters: Object,
 });
 
 const showPicker = ref(false);
@@ -13,8 +14,44 @@ const selectedAgentId = ref(null);
 const localSessions = ref([...props.sessions.data]);
 const deletingIds = ref(new Set());
 
+// Sync local list when the server returns updated results (filter/pagination changes)
+watch(() => props.sessions.data, (data) => {
+    localSessions.value = [...data];
+});
+
 const form = useForm({ agent_id: null });
 
+// --- Filters ---
+const search = ref(props.filters.search ?? '');
+const filterAgentId = ref(props.filters.agent_id ?? '');
+const filterStatus = ref(props.filters.status ?? '');
+
+let searchTimer = null;
+
+function applyFilters() {
+    const params = {};
+    if (search.value)        params.search   = search.value;
+    if (filterAgentId.value) params.agent_id = filterAgentId.value;
+    if (filterStatus.value)  params.status   = filterStatus.value;
+
+    router.get(route('advisor.index'), params, { preserveState: true, replace: true });
+}
+
+function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(applyFilters, 350);
+}
+
+function clearFilters() {
+    search.value        = '';
+    filterAgentId.value = '';
+    filterStatus.value  = '';
+    router.get(route('advisor.index'), {}, { preserveState: true, replace: true });
+}
+
+const hasFilters = () => search.value || filterAgentId.value || filterStatus.value;
+
+// --- Session management ---
 function openPicker() {
     selectedAgentId.value = null;
     showPicker.value = true;
@@ -74,10 +111,56 @@ function formatCost(session) {
             </div>
         </template>
 
-        <div class="py-12">
-            <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
+        <div class="py-6 sm:py-12">
+            <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
 
-                <div v-if="localSessions.length === 0" class="bg-white rounded-lg shadow p-16 text-center">
+                <!-- Filters -->
+                <div class="mb-4 flex flex-wrap items-center gap-3">
+                    <div class="relative flex-1 min-w-48">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <input
+                            v-model="search"
+                            @input="onSearchInput"
+                            type="text"
+                            placeholder="Search sessions…"
+                            class="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent bg-white"
+                        />
+                    </div>
+
+                    <select
+                        v-model="filterAgentId"
+                        @change="applyFilters"
+                        class="shrink-0 text-sm border border-gray-300 rounded-lg pl-3 pr-10 py-2 focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white text-gray-700"
+                    >
+                        <option value="">All agents</option>
+                        <option v-for="agent in agents" :key="agent.id" :value="agent.id">
+                            {{ agent.name }}
+                        </option>
+                    </select>
+
+                    <select
+                        v-model="filterStatus"
+                        @change="applyFilters"
+                        class="shrink-0 text-sm border border-gray-300 rounded-lg pl-3 pr-10 py-2 focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white text-gray-700"
+                    >
+                        <option value="">All statuses</option>
+                        <option value="active">Active</option>
+                        <option value="closed">Closed</option>
+                    </select>
+
+                    <button
+                        v-if="hasFilters()"
+                        @click="clearFilters"
+                        class="text-sm text-gray-500 hover:text-gray-700 transition underline"
+                    >
+                        Clear
+                    </button>
+                </div>
+
+                <!-- Empty: no sessions at all -->
+                <div v-if="localSessions.length === 0 && !hasFilters()" class="bg-white rounded-lg shadow p-16 text-center">
                     <p class="text-gray-500 text-lg mb-6">No sessions yet. Start a conversation with your advisor.</p>
                     <button
                         @click="openPicker"
@@ -86,6 +169,12 @@ function formatCost(session) {
                     >
                         Start First Session
                     </button>
+                </div>
+
+                <!-- Empty: filters returned no results -->
+                <div v-else-if="localSessions.length === 0 && hasFilters()" class="bg-white rounded-lg shadow p-12 text-center text-gray-500 text-sm">
+                    No sessions match your filters.
+                    <button @click="clearFilters" class="ml-1 text-gray-700 underline hover:no-underline">Clear filters</button>
                 </div>
 
                 <div v-else class="bg-white rounded-lg shadow overflow-hidden">
@@ -100,34 +189,34 @@ function formatCost(session) {
                         >
                             <div class="w-2 h-2 rounded-full shrink-0" :class="session.ended_at ? 'bg-gray-300' : 'bg-green-400'" />
                             <div class="min-w-0">
-                                <div class="flex items-center gap-2">
-                                    <span class="font-medium text-gray-800">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="font-medium text-gray-800 truncate">
                                         {{ session.title ?? 'Untitled session' }}
                                     </span>
                                     <span
                                         v-if="session.agent"
-                                        class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                        class="hidden sm:inline shrink-0 text-xs px-2 py-0.5 rounded-full font-medium"
                                         :style="{ backgroundColor: (session.agent.color || '#6B7280') + '20', color: session.agent.color || '#6B7280' }"
                                     >
                                         {{ session.agent.name }}
                                     </span>
                                 </div>
-                                <div class="text-sm text-gray-500">
+                                <div class="text-xs sm:text-sm text-gray-500 truncate">
                                     {{ formatDate(session.created_at) }}
                                     &middot;
-                                    {{ session.message_count }} messages
+                                    {{ session.message_count }} msg
                                     <template v-if="formatCost(session)">
                                         &middot; {{ formatCost(session) }}
                                     </template>
                                 </div>
                             </div>
                         </Link>
-                        <div class="flex items-center gap-3 text-sm text-gray-400 shrink-0 ml-4">
-                            <span v-if="session.avg_rating" class="font-medium text-gray-600">
+                        <div class="flex items-center gap-2 sm:gap-3 text-sm text-gray-400 shrink-0 ml-2 sm:ml-4">
+                            <span v-if="session.avg_rating" class="hidden sm:inline font-medium text-gray-600">
                                 {{ session.avg_rating }}/10
                             </span>
-                            <span v-if="!session.ended_at" class="text-green-600 font-medium">Active</span>
-                            <span v-else>Closed</span>
+                            <span v-if="!session.ended_at" class="text-green-600 font-medium text-xs sm:text-sm">Active</span>
+                            <span v-else class="hidden sm:inline text-xs sm:text-sm">Closed</span>
                             <button
                                 @click="deleteSession($event, session)"
                                 :disabled="deletingIds.has(session.id)"

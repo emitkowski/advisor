@@ -22,7 +22,7 @@ class MessageTest extends TestCase
                 ->andReturnUsing(function () use ($chunks, $usage) {
                     return (function () use ($chunks, $usage) {
                         foreach ($chunks as $chunk) {
-                            yield $chunk;
+                            yield ['type' => 'text', 'text' => $chunk];
                         }
                         return $usage;
                     })();
@@ -287,7 +287,7 @@ class MessageTest extends TestCase
                         ? ['input_tokens' => 100, 'output_tokens' => 50]
                         : ['input_tokens' => 200, 'output_tokens' => 80];
                     return (function () use ($usage) {
-                        yield 'response';
+                        yield ['type' => 'text', 'text' => 'response'];
                         return $usage;
                     })();
                 });

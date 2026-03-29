@@ -3,7 +3,7 @@
 
 # Project
 
-This is a Laravel 13 application using Jetstream with Inertia.js and Vue 3 for the frontend.
+This is a Laravel 13 application — a personal AI advisor that learns from conversations over time. It uses Jetstream with Inertia.js and Vue 3 for the frontend.
 
 ## Key Packages
 
@@ -20,6 +20,62 @@ This is a Laravel 13 application using Jetstream with Inertia.js and Vue 3 for t
 - Layouts are in `resources/js/Layouts`
 - Use the `route()` helper from Ziggy for all internal links
 - Tailwind CSS is the styling framework
+- `@tailwindcss/forms` is active — it sets `appearance: none` on `<select>` elements and injects a custom arrow via `background-image`. Always use `pl-3 pr-10` (not `px-3`) on selects to leave room for the arrow
+
+## Core Domain Concepts
+
+### Agents
+
+- Agents define the advisor's identity, personality, and algorithm
+- Each agent has: `name`, `color`, `description`, `system_prompt_preamble`, `algorithm`, `personality` (JSON array of `{trait, value, description}`)
+- Preset agents are seeded via `Agent::seedDefaults()` — see `agent.md` for all definitions
+- **Visibility pattern**: agents are either personal (`user_id = auth, team_id = null`) or team-shared (`team_id = team`). Use `visibleAgentsQuery()` in controllers (defined in both `AgentController` and `AdvisorController`) to scope correctly — never query agents without it
+- Only the creator (`user_id`) can mutate an agent; any team member can read it
+
+### Sessions & Streaming
+
+- Sessions hold a thread (JSON array of `{role, content}` messages)
+- Chat responses stream via SSE — the `message` endpoint yields tagged arrays: `['type' => 'text', 'content' => '...']`, `['type' => 'search_start']`, etc.
+- Session close queues a `ProcessSessionLearning` job on the `learning` queue
+
+### Learning Pipeline (`ProcessSessionLearning`)
+
+After a session closes the job runs in order:
+1. `generateTitle()` — sets session title if not already set
+2. `generateSummary()` — short shareable summary stored in `session.summary`
+3. `extractLearnings()` — categorized insights (blind_spot / pattern / follow_through / value / reaction / domain)
+4. `extractProfileObservations()` — stable traits with confidence scores
+5. `extractSignals()` — satisfaction ratings
+6. `extractProjects()` — ideas/projects with status (active/paused/completed/abandoned/unclear)
+
+All extraction calls use `AnthropicService::completeJson()` which returns structured JSON from Claude.
+
+### System Prompt Assembly (`SystemPromptBuilder`)
+
+Built fresh before every message:
+1. Agent's `system_prompt_preamble`
+2. Personality traits block
+3. Memory context (profile observations, learnings by category)
+4. Project context (`Project::buildProjectContext()`) — personal + team projects
+5. Agent's `algorithm`
+
+`teamId()` resolves via `User::find($userId)?->currentOrOwnedTeam()?->id` — so team context is implicit, not passed explicitly.
+
+### Teams (Custom — NOT Jetstream teams)
+
+Jetstream's team feature is disabled. This app uses a lightweight custom team system:
+- Tables: `teams`, `team_members` (pivot), `team_invitations`
+- A user can own at most one team (`ownedTeam` HasOne) and belong to many (`teams` BelongsToMany)
+- `User::currentOrOwnedTeam()` — returns `$this->currentTeam ?? $this->ownedTeam`; used throughout controllers and the system prompt builder
+- Invitations use 64-char random tokens with 7-day expiry; `TeamInvitation::generate()` is the factory
+- Invite emails go to Mailpit locally (dashboard at `http://localhost:8025`)
+- Accept invitation page: `/invite/{token}` → `InvitationController::show()` → `Team/AcceptInvitation.vue`
+
+### Sharing
+
+- Sessions can be shared via a public token stored in `advisor_sessions.share_token`
+- Public URL: `/shared/{token}` — no auth required
+- Shared pages include full OG + Twitter Card meta tags for rich link previews
 
 ## Debugging with Telescope
 
@@ -34,8 +90,8 @@ This is a Laravel 13 application using Jetstream with Inertia.js and Vue 3 for t
 ## Local Email (Mailpit)
 
 - All mail sent locally is captured by Mailpit — nothing reaches real inboxes
-- Mailpit dashboard is at `http://localhost:{FORWARD_MAILPIT_DASHBOARD_PORT}` (see `.env`)
-- Useful for testing Jetstream emails: registration verification, password reset, team invitations
+- Mailpit dashboard is at `http://localhost:8025`
+- Used for: team invitation emails
 
 ## API Conventions
 
@@ -111,82 +167,51 @@ This application is a Laravel application and its main Laravel ecosystems packag
 
 # Laravel Boost
 
-- Laravel Boost is an MCP server that comes with powerful tools designed specifically for this application. Use them.
+## Tools
 
-## Artisan Commands
+- Laravel Boost is an MCP server with tools designed specifically for this application. Prefer Boost tools over manual alternatives like shell commands or file reads.
+- Use `database-query` to run read-only queries against the database instead of writing raw SQL in tinker.
+- Use `database-schema` to inspect table structure before writing migrations or models.
+- Use `get-absolute-url` to resolve the correct scheme, domain, and port for project URLs. Always use this before sharing a URL with the user.
+- Use `browser-logs` to read browser logs, errors, and exceptions. Only recent logs are useful, ignore old entries.
 
-- Run Artisan commands directly via the command line (e.g., `vendor/bin/sail artisan route:list`, `vendor/bin/sail artisan tinker --execute "..."`).
-- Use `vendor/bin/sail artisan list` to discover available commands and `vendor/bin/sail artisan [command] --help` to check parameters.
+## Searching Documentation (IMPORTANT)
 
-## URLs
+- Always use `search-docs` before making code changes. Do not skip this step. It returns version-specific docs based on installed packages automatically.
+- Pass a `packages` array to scope results when you know which packages are relevant.
+- Use multiple broad, topic-based queries: `['rate limiting', 'routing rate limiting', 'routing']`. Expect the most relevant results first.
+- Do not add package names to queries because package info is already shared. Use `test resource table`, not `filament 4 test resource table`.
 
-- Whenever you share a project URL with the user, you should use the `get-absolute-url` tool to ensure you're using the correct scheme, domain/IP, and port.
+### Search Syntax
 
-## Debugging
+1. Use words for auto-stemmed AND logic: `rate limit` matches both "rate" AND "limit".
+2. Use `"quoted phrases"` for exact position matching: `"infinite scroll"` requires adjacent words in order.
+3. Combine words and phrases for mixed queries: `middleware "rate limit"`.
+4. Use multiple queries for OR logic: `queries=["authentication", "middleware"]`.
 
-- Use the `database-query` tool when you only need to read from the database.
-- Use the `database-schema` tool to inspect table structure before writing migrations or models.
-- To execute PHP code for debugging, run `vendor/bin/sail artisan tinker --execute "your code here"` directly.
-- To read configuration values, read the config files directly or run `vendor/bin/sail artisan config:show [key]`.
-- To inspect routes, run `vendor/bin/sail artisan route:list` directly.
+## Artisan
+
+- Run Artisan commands directly via the command line (e.g., `vendor/bin/sail artisan route:list`). Use `vendor/bin/sail artisan list` to discover available commands and `vendor/bin/sail artisan [command] --help` to check parameters.
+- Inspect routes with `vendor/bin/sail artisan route:list`. Filter with: `--method=GET`, `--name=users`, `--path=api`, `--except-vendor`, `--only-vendor`.
+- Read configuration values using dot notation: `vendor/bin/sail artisan config:show app.name`, `vendor/bin/sail artisan config:show database.default`. Or read config files directly from the `config/` directory.
 - To check environment variables, read the `.env` file directly.
 
-## Reading Browser Logs With the `browser-logs` Tool
+## Tinker
 
-- You can read browser logs, errors, and exceptions using the `browser-logs` tool from Boost.
-- Only recent browser logs will be useful - ignore old logs.
-
-## Searching Documentation (Critically Important)
-
-- Boost comes with a powerful `search-docs` tool you should use before trying other approaches when working with Laravel or Laravel ecosystem packages. This tool automatically passes a list of installed packages and their versions to the remote Boost API, so it returns only version-specific documentation for the user's circumstance. You should pass an array of packages to filter on if you know you need docs for particular packages.
-- Search the documentation before making code changes to ensure we are taking the correct approach.
-- Use multiple, broad, simple, topic-based queries at once. For example: `['rate limiting', 'routing rate limiting', 'routing']`. The most relevant results will be returned first.
-- Do not add package names to queries; package information is already shared. For example, use `test resource table`, not `filament 4 test resource table`.
-
-### Available Search Syntax
-
-1. Simple Word Searches with auto-stemming - query=authentication - finds 'authenticate' and 'auth'.
-2. Multiple Words (AND Logic) - query=rate limit - finds knowledge containing both "rate" AND "limit".
-3. Quoted Phrases (Exact Position) - query="infinite scroll" - words must be adjacent and in that order.
-4. Mixed Queries - query=middleware "rate limit" - "middleware" AND exact phrase "rate limit".
-5. Multiple Queries - queries=["authentication", "middleware"] - ANY of these terms.
+- Execute PHP in app context for debugging and testing code. Do not create models without user approval, prefer tests with factories instead. Prefer existing Artisan commands over custom tinker code.
+- Always use single quotes to prevent shell expansion: `vendor/bin/sail artisan tinker --execute 'Your::code();'`
+  - Double quotes for PHP strings inside: `vendor/bin/sail artisan tinker --execute 'User::where("active", true)->count();'`
 
 === php rules ===
 
 # PHP
 
 - Always use curly braces for control structures, even for single-line bodies.
-
-## Constructors
-
-- Use PHP 8 constructor property promotion in `__construct()`.
-    - `public function __construct(public GitHub $github) { }`
-- Do not allow empty `__construct()` methods with zero parameters unless the constructor is private.
-
-## Type Declarations
-
-- Always use explicit return type declarations for methods and functions.
-- Use appropriate PHP type hints for method parameters.
-
-<!-- Explicit Return Types and Method Params -->
-```php
-protected function isAccessible(User $user, ?string $path = null): bool
-{
-    ...
-}
-```
-
-## Enums
-
-- Typically, keys in an Enum should be TitleCase. For example: `FavoritePerson`, `BestLake`, `Monthly`.
-
-## Comments
-
-- Prefer PHPDoc blocks over inline comments. Never use comments within the code itself unless the logic is exceptionally complex.
-
-## PHPDoc Blocks
-
-- Add useful array shape type definitions when appropriate.
+- Use PHP 8 constructor property promotion: `public function __construct(public GitHub $github) { }`. Do not leave empty zero-parameter `__construct()` methods unless the constructor is private.
+- Use explicit return type declarations and type hints for all method parameters: `function isAccessible(User $user, ?string $path = null): bool`
+- Use TitleCase for Enum keys: `FavoritePerson`, `BestLake`, `Monthly`.
+- Prefer PHPDoc blocks over inline comments. Only add inline comments for exceptionally complex logic.
+- Use array shape type definitions in PHPDoc blocks.
 
 === sail rules ===
 
@@ -232,42 +257,17 @@ protected function isAccessible(User $user, ?string $path = null): bool
 - If you're creating a generic PHP class, use `vendor/bin/sail artisan make:class`.
 - Pass `--no-interaction` to all Artisan commands to ensure they work without user input. You should also pass the correct `--options` to ensure correct behavior.
 
-## Database
-
-- Always use proper Eloquent relationship methods with return type hints. Prefer relationship methods over raw queries or manual joins.
-- Use Eloquent models and relationships before suggesting raw database queries.
-- Avoid `DB::`; prefer `Model::query()`. Generate code that leverages Laravel's ORM capabilities rather than bypassing them.
-- Generate code that prevents N+1 query problems by using eager loading.
-- Use Laravel's query builder for very complex database operations.
-
 ### Model Creation
 
 - When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `vendor/bin/sail artisan make:model --help` to check the available options.
 
-### APIs & Eloquent Resources
+## APIs & Eloquent Resources
 
 - For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
-
-## Controllers & Validation
-
-- Always create Form Request classes for validation rather than inline validation in controllers. Include both validation rules and custom error messages.
-- Check sibling Form Requests to see if the application uses array or string based validation rules.
-
-## Authentication & Authorization
-
-- Use Laravel's built-in authentication and authorization features (gates, policies, Sanctum, etc.).
 
 ## URL Generation
 
 - When generating links to other pages, prefer named routes and the `route()` function.
-
-## Queues
-
-- Use queued jobs for time-consuming operations with the `ShouldQueue` interface.
-
-## Configuration
-
-- Use environment variables only in configuration files - never use the `env()` function directly outside of config files. Always use `config('app.name')`, not `env('APP_NAME')`.
 
 ## Testing
 

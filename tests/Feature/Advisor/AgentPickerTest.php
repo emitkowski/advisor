@@ -58,7 +58,7 @@ class AgentPickerTest extends TestCase
 
         $this->actingAs($user)->get(route('advisor.index'));
 
-        $this->assertSame(5, Agent::where('user_id', $user->id)->count());
+        $this->assertSame(6, Agent::where('user_id', $user->id)->count());
     }
 
     public function test_index_passes_agents_to_inertia(): void
@@ -68,7 +68,7 @@ class AgentPickerTest extends TestCase
 
         $this->actingAs($user)
             ->get(route('advisor.index'))
-            ->assertInertia(fn ($page) => $page->has('agents', 7)); // 2 custom + 5 seeded presets
+            ->assertInertia(fn ($page) => $page->has('agents', 8)); // 2 custom + 6 seeded presets
     }
 
     // --- SystemPromptBuilder with agent ---

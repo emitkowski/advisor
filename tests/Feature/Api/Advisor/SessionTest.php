@@ -71,7 +71,7 @@ class SessionTest extends TestCase
 
         $this->postJson('/api/v1/advisor/sessions')->assertCreated();
 
-        $this->assertSame(7, PersonalityTrait::where('user_id', $user->id)->count());
+        $this->assertSame(13, PersonalityTrait::where('user_id', $user->id)->count());
     }
 
     // --- Show ---

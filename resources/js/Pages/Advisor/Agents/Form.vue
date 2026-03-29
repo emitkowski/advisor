@@ -4,7 +4,8 @@ import { Link, router } from '@inertiajs/vue3';
 import { ref, reactive } from 'vue';
 
 const props = defineProps({
-    agent: Object, // null when creating
+    agent:      Object, // null when creating
+    userTeamId: Number, // null if user is not on a team
 });
 
 const isEdit = props.agent !== null;
@@ -12,7 +13,10 @@ const isEdit = props.agent !== null;
 const form = reactive({
     name:                   props.agent?.name ?? '',
     description:            props.agent?.description ?? '',
+    color:                  props.agent?.color ?? '#3B82F6',
     system_prompt_preamble: props.agent?.system_prompt_preamble ?? '',
+    algorithm:              props.agent?.algorithm ?? '',
+    team_id:                props.agent?.team_id ?? null,
     personality:            props.agent?.personality
         ? props.agent.personality.map((t) => ({ ...t }))
         : [{ trait: '', value: 50, description: '' }],
@@ -95,6 +99,39 @@ async function submit() {
                                 <p v-if="errors.description" class="mt-1 text-xs text-red-600">{{ errors.description[0] }}</p>
                             </div>
                             <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Badge Color</label>
+                                <div class="flex items-center gap-3">
+                                    <input
+                                        v-model="form.color"
+                                        type="color"
+                                        class="h-9 w-14 rounded border border-gray-300 cursor-pointer p-0.5"
+                                    />
+                                    <input
+                                        v-model="form.color"
+                                        type="text"
+                                        maxlength="7"
+                                        class="w-28 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-800"
+                                        placeholder="#3B82F6"
+                                    />
+                                    <span class="text-xs text-gray-400">Shown on the agent badge in sessions</span>
+                                </div>
+                                <p v-if="errors.color" class="mt-1 text-xs text-red-600">{{ errors.color[0] }}</p>
+                            </div>
+                            <div v-if="userTeamId">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        :checked="form.team_id === userTeamId"
+                                        @change="form.team_id = $event.target.checked ? userTeamId : null"
+                                        class="w-4 h-4 rounded border-gray-300 text-gray-800 focus:ring-gray-800 cursor-pointer"
+                                    />
+                                    <div>
+                                        <span class="text-sm font-medium text-gray-700">Share with team</span>
+                                        <p class="text-xs text-gray-400">All team members can use this agent in their sessions.</p>
+                                    </div>
+                                </label>
+                            </div>
+                            <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">System Prompt Preamble</label>
                                 <p class="text-xs text-gray-400 mb-1.5">Defines the agent's identity and core rules. Memory context is always appended automatically.</p>
                                 <textarea
@@ -104,6 +141,17 @@ async function submit() {
                                     placeholder="# Your Identity&#10;&#10;You are..."
                                 />
                                 <p v-if="errors.system_prompt_preamble" class="mt-1 text-xs text-red-600">{{ errors.system_prompt_preamble[0] }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Algorithm</label>
+                                <p class="text-xs text-gray-400 mb-1.5">Describes the cognitive process this agent uses when responding. Appended to the system prompt after the preamble.</p>
+                                <textarea
+                                    v-model="form.algorithm"
+                                    rows="8"
+                                    class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-800"
+                                    placeholder="## Your Process&#10;&#10;When responding:&#10;1. ..."
+                                />
+                                <p v-if="errors.algorithm" class="mt-1 text-xs text-red-600">{{ errors.algorithm[0] }}</p>
                             </div>
                         </div>
                     </div>

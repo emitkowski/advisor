@@ -27,17 +27,21 @@ class AdvisorSession extends Model
         'avg_rating',
         'started_at',
         'ended_at',
+        'learnings_extracted_at',
+        'summary',
+        'share_token',
     ];
 
     protected $casts = [
-        'thread'        => 'array',
-        'meta'          => 'array',
-        'isc'           => 'array',
-        'input_tokens'  => 'integer',
-        'output_tokens' => 'integer',
-        'started_at'    => 'datetime',
-        'ended_at'      => 'datetime',
-        'avg_rating'    => 'decimal:2',
+        'thread'                  => 'array',
+        'meta'                    => 'array',
+        'isc'                     => 'array',
+        'input_tokens'            => 'integer',
+        'output_tokens'           => 'integer',
+        'started_at'              => 'datetime',
+        'ended_at'                => 'datetime',
+        'learnings_extracted_at'  => 'datetime',
+        'avg_rating'              => 'decimal:2',
     ];
 
     protected $appends = ['cost_usd'];

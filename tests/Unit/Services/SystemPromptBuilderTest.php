@@ -54,6 +54,6 @@ class SystemPromptBuilderTest extends TestCase
             ->unique()
             ->values();
 
-        $this->assertCount(5, $algorithms, 'Each preset agent should have a unique algorithm.');
+        $this->assertCount(6, $algorithms, 'Each preset agent should have a unique algorithm.');
     }
 }

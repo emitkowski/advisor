@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Exceptions\UserFacingException;
-use App\Models\AdvisorSession;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Generator;
@@ -13,30 +12,40 @@ class AnthropicService
     private string $apiKey;
     private string $model;
     private int    $maxTokens;
+    private bool   $webSearchEnabled;
+    private int    $webSearchMaxUses;
     private string $apiBase = 'https://api.anthropic.com/v1';
 
     public function __construct()
     {
         $this->apiKey = config('advisor.anthropic_api_key')
             ?: throw new \RuntimeException('ANTHROPIC_API_KEY is not configured.');
-        $this->model     = config('advisor.model', 'claude-sonnet-4-20250514');
-        $this->maxTokens = config('advisor.max_tokens', 2048);
+        $this->model            = config('advisor.model', 'claude-sonnet-4-20250514');
+        $this->maxTokens        = config('advisor.max_tokens', 2048);
+        $this->webSearchEnabled = (bool) config('advisor.web_search', true);
+        $this->webSearchMaxUses = (int) config('advisor.web_search_max_uses', 5);
     }
 
     /**
      * Send a message and return the full response text.
      * Use for background jobs and non-streaming contexts.
      */
-    public function complete(string $systemPrompt, array $messages): string
+    public function complete(string $systemPrompt, array $messages, bool $withTools = true): string
     {
+        $payload = [
+            'model'      => $this->model,
+            'max_tokens' => $this->maxTokens,
+            'system'     => $systemPrompt,
+            'messages'   => $messages,
+        ];
+
+        if ($withTools && $this->webSearchEnabled) {
+            $payload['tools'] = $this->webSearchTool();
+        }
+
         $response = Http::withHeaders($this->headers())
             ->timeout(60)
-            ->post("{$this->apiBase}/messages", [
-                'model'      => $this->model,
-                'max_tokens' => $this->maxTokens,
-                'system'     => $systemPrompt,
-                'messages'   => $messages,
-            ]);
+            ->post("{$this->apiBase}/messages", $payload);
 
         if ($response->status() === 429) {
             throw new \RuntimeException('Anthropic API rate limit exceeded. Please try again shortly.');
@@ -56,7 +65,10 @@ class AnthropicService
 
         $data = $response->json();
 
-        return $data['content'][0]['text'] ?? '';
+        return collect($data['content'] ?? [])
+            ->where('type', 'text')
+            ->pluck('text')
+            ->implode('');
     }
 
     /**
@@ -66,18 +78,24 @@ class AnthropicService
      */
     public function stream(string $systemPrompt, array $messages): Generator
     {
+        $payload = [
+            'model'      => $this->model,
+            'max_tokens' => $this->maxTokens,
+            'system'     => $systemPrompt,
+            'messages'   => $messages,
+            'stream'     => true,
+        ];
+
+        if ($this->webSearchEnabled) {
+            $payload['tools'] = $this->webSearchTool();
+        }
+
         $response = Http::withHeaders($this->headers())
             ->withOptions([
                 'stream'  => true,
                 'timeout' => 120,
             ])
-            ->post("{$this->apiBase}/messages", [
-                'model'      => $this->model,
-                'max_tokens' => $this->maxTokens,
-                'system'     => $systemPrompt,
-                'messages'   => $messages,
-                'stream'     => true,
-            ]);
+            ->post("{$this->apiBase}/messages", $payload);
 
         if ($response->status() === 429) {
             throw new \RuntimeException('Anthropic API rate limit exceeded. Please try again shortly.');
@@ -137,10 +155,20 @@ class AnthropicService
                         break;
                     case 'message_delta':
                         $outputTokens = $event['usage']['output_tokens'] ?? 0;
+                        // pause_turn occurs during server-side tool execution (e.g. web search);
+                        // the stream continues and completes normally via message_stop.
+                        break;
+                    case 'content_block_start':
+                        $blockType = $event['content_block']['type'] ?? null;
+                        if ($blockType === 'server_tool_use' && ($event['content_block']['name'] ?? null) === 'web_search') {
+                            yield ['type' => 'search_start'];
+                        } elseif ($blockType === 'web_search_tool_result') {
+                            yield ['type' => 'search_end'];
+                        }
                         break;
                     case 'content_block_delta':
-                        if (isset($event['delta']['text'])) {
-                            yield $event['delta']['text'];
+                        if (($event['delta']['type'] ?? null) === 'text_delta' && isset($event['delta']['text'])) {
+                            yield ['type' => 'text', 'text' => $event['delta']['text']];
                         }
                         break;
                     case 'message_stop':
@@ -165,7 +193,7 @@ class AnthropicService
     {
         $jsonSystemPrompt = $systemPrompt . "\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown, no preamble, no backticks.";
 
-        $text = $this->complete($jsonSystemPrompt, $messages);
+        $text = $this->complete($jsonSystemPrompt, $messages, false);
 
         // Strip any accidental markdown fences
         $text = preg_replace('/^```(?:json)?\s*/i', '', trim($text));
@@ -179,6 +207,17 @@ class AnthropicService
         }
 
         return $data;
+    }
+
+    private function webSearchTool(): array
+    {
+        return [
+            [
+                'type'     => 'web_search_20250305',
+                'name'     => 'web_search',
+                'max_uses' => $this->webSearchMaxUses,
+            ],
+        ];
     }
 
     private function headers(): array

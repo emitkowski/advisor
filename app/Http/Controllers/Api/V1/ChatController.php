@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ChatController extends Controller
@@ -152,11 +153,15 @@ class ChatController extends Controller
             try {
                 $gen = $this->claude->stream($systemPrompt, $messages);
 
-                foreach ($gen as $chunk) {
-                    $fullResponse .= $chunk;
-
-                    // Send SSE event
-                    echo "data: " . json_encode(['text' => $chunk]) . "\n\n";
+                foreach ($gen as $event) {
+                    if ($event['type'] === 'text') {
+                        $fullResponse .= $event['text'];
+                        echo "data: " . json_encode(['text' => $event['text']]) . "\n\n";
+                    } elseif ($event['type'] === 'search_start') {
+                        echo "data: " . json_encode(['searching' => true]) . "\n\n";
+                    } elseif ($event['type'] === 'search_end') {
+                        echo "data: " . json_encode(['searching' => false]) . "\n\n";
+                    }
                     ob_flush();
                     flush();
                 }
@@ -314,6 +319,34 @@ class ChatController extends Controller
         $profile->delete();
 
         return response()->json(['message' => 'Observation deleted.']);
+    }
+
+    /**
+     * Generate a share token for a session, making it publicly viewable.
+     */
+    public function share(int $sessionId): JsonResponse
+    {
+        $session = AdvisorSession::where('user_id', Auth::id())->findOrFail($sessionId);
+
+        if (!$session->share_token) {
+            $session->update(['share_token' => Str::random(32)]);
+        }
+
+        return response()->json([
+            'share_url' => route('advisor.shared', $session->share_token),
+        ]);
+    }
+
+    /**
+     * Revoke the share token for a session.
+     */
+    public function unshare(int $sessionId): JsonResponse
+    {
+        $session = AdvisorSession::where('user_id', Auth::id())->findOrFail($sessionId);
+
+        $session->update(['share_token' => null]);
+
+        return response()->json(['message' => 'Share link revoked.']);
     }
 
     /**

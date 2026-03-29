@@ -11,13 +11,13 @@ class PersonalityTraitTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_seed_defaults_creates_seven_traits(): void
+    public function test_seed_defaults_creates_thirteen_traits(): void
     {
         $user = User::factory()->create();
 
         PersonalityTrait::seedDefaults($user->id);
 
-        $this->assertSame(7, PersonalityTrait::where('user_id', $user->id)->count());
+        $this->assertSame(13, PersonalityTrait::where('user_id', $user->id)->count());
     }
 
     public function test_seed_defaults_is_idempotent(): void
@@ -27,7 +27,7 @@ class PersonalityTraitTest extends TestCase
         PersonalityTrait::seedDefaults($user->id);
         PersonalityTrait::seedDefaults($user->id);
 
-        $this->assertSame(7, PersonalityTrait::where('user_id', $user->id)->count());
+        $this->assertSame(13, PersonalityTrait::where('user_id', $user->id)->count());
     }
 
     public function test_seed_defaults_marks_traits_as_system(): void
@@ -37,7 +37,7 @@ class PersonalityTraitTest extends TestCase
         PersonalityTrait::seedDefaults($user->id);
 
         $this->assertSame(
-            7,
+            13,
             PersonalityTrait::where('user_id', $user->id)->where('is_system', true)->count()
         );
     }

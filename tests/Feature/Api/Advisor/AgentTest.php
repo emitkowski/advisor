@@ -17,6 +17,7 @@ class AgentTest extends TestCase
         return array_merge([
             'name'                   => 'My Custom Agent',
             'description'            => 'A focused advisor for product decisions.',
+            'color'                  => '#3B82F6',
             'system_prompt_preamble' => 'You are a product advisor. Be concise.',
             'personality'            => [
                 ['trait' => 'directness', 'value' => 80, 'description' => 'Clear and direct.'],
@@ -146,13 +147,13 @@ class AgentTest extends TestCase
 
     // --- seed presets ---
 
-    public function test_seed_defaults_creates_five_preset_agents(): void
+    public function test_seed_defaults_creates_six_preset_agents(): void
     {
         $user = User::factory()->create();
         Agent::seedDefaults($user->id);
 
-        $this->assertSame(5, Agent::where('user_id', $user->id)->count());
-        $this->assertSame(5, Agent::where('user_id', $user->id)->where('is_preset', true)->count());
+        $this->assertSame(6, Agent::where('user_id', $user->id)->count());
+        $this->assertSame(6, Agent::where('user_id', $user->id)->where('is_preset', true)->count());
     }
 
     public function test_seed_defaults_is_idempotent(): void
@@ -161,6 +162,6 @@ class AgentTest extends TestCase
         Agent::seedDefaults($user->id);
         Agent::seedDefaults($user->id);
 
-        $this->assertSame(5, Agent::where('user_id', $user->id)->count());
+        $this->assertSame(6, Agent::where('user_id', $user->id)->count());
     }
 }

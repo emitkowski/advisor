@@ -68,7 +68,7 @@ class AdvisorPageTest extends TestCase
 
         $this->actingAs($user)->post(route('advisor.store'));
 
-        $this->assertSame(7, PersonalityTrait::where('user_id', $user->id)->count());
+        $this->assertSame(13, PersonalityTrait::where('user_id', $user->id)->count());
     }
 
     public function test_store_redirects_to_the_new_session(): void

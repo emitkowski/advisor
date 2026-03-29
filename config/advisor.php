@@ -17,8 +17,10 @@ return [
     | claude-opus-4-6           — highest quality, slower and more expensive
     | claude-haiku-4-5-20251001 — fastest and cheapest, less nuanced
     */
-    'model'      => env('ADVISOR_MODEL', 'claude-sonnet-4-20250514'),
-    'max_tokens' => env('ADVISOR_MAX_TOKENS', 2048),
+    'model'             => env('ADVISOR_MODEL', 'claude-sonnet-4-20250514'),
+    'max_tokens'        => env('ADVISOR_MAX_TOKENS', 2048),
+    'web_search'        => env('ADVISOR_WEB_SEARCH', true),
+    'web_search_max_uses' => env('ADVISOR_WEB_SEARCH_MAX_USES', 5),
 
     /*
     |--------------------------------------------------------------------------

@@ -57,6 +57,9 @@ const logout = () => {
                                 <NavLink :href="route('advisor.profile')" :active="route().current('advisor.profile')">
                                     What I Know About You
                                 </NavLink>
+                                <NavLink :href="route('advisor.team')" :active="route().current('advisor.team')">
+                                    Team
+                                </NavLink>
                             </div>
                         </div>
 
@@ -206,6 +209,9 @@ const logout = () => {
                         <ResponsiveNavLink :href="route('advisor.profile')" :active="route().current('advisor.profile')">
                             What I Know About You
                         </ResponsiveNavLink>
+                        <ResponsiveNavLink :href="route('advisor.team')" :active="route().current('advisor.team')">
+                            Team
+                        </ResponsiveNavLink>
                     </div>
 
                     <!-- Responsive Settings Options -->
@@ -287,7 +293,7 @@ const logout = () => {
 
             <!-- Page Heading -->
             <header v-if="$slots.header" class="bg-white shadow">
-                <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+                <div class="max-w-7xl mx-auto py-3 sm:py-6 px-4 sm:px-6 lg:px-8">
                     <slot name="header" />
                 </div>
             </header>

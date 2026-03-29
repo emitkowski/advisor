@@ -61,18 +61,25 @@ async function deleteAgent(agent) {
                             />
                             <div class="min-w-0">
                                 <div class="flex items-center gap-2">
-                                    <span class="font-semibold text-gray-800 text-base">{{ agent.name }}</span>
+                                    <Link :href="route('advisor.agents.show', agent.id)" class="font-semibold text-gray-800 text-base hover:underline">{{ agent.name }}</Link>
                                     <span
                                         v-if="agent.sort_order === 1"
                                         class="text-xs px-2 py-0.5 rounded-full font-medium"
                                         :style="{ backgroundColor: agent.color + '20', color: agent.color }"
                                     >default</span>
                                     <span v-else-if="agent.is_preset" class="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">preset</span>
+                                    <span v-if="agent.team_id" class="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">shared</span>
                                 </div>
                                 <p class="text-sm text-gray-500 mt-0.5 leading-relaxed">{{ agent.description }}</p>
                             </div>
                         </div>
                         <div class="shrink-0 flex items-center gap-2 ml-4">
+                            <Link
+                                :href="route('advisor.agents.show', agent.id)"
+                                class="text-sm text-gray-500 hover:text-gray-800 transition px-2 py-1"
+                            >
+                                View
+                            </Link>
                             <Link
                                 :href="route('advisor.agents.edit', agent.id)"
                                 class="text-sm text-gray-500 hover:text-gray-800 transition px-2 py-1"

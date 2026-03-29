@@ -17,6 +17,7 @@ class AgentFactory extends Factory
             'user_id'               => User::factory(),
             'name'                  => $this->faker->words(3, true),
             'description'           => $this->faker->sentence(),
+            'color'                 => '#3B82F6',
             'system_prompt_preamble' => $this->faker->paragraph(),
             'personality'           => [
                 ['trait' => 'directness', 'value' => 80, 'description' => 'Direct feedback.'],

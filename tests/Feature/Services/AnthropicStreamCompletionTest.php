@@ -36,14 +36,14 @@ class AnthropicStreamCompletionTest extends TestCase
     {
         $this->fakeSseResponse(implode('', [
             "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n",
-            "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hello\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
             "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":5}}\n\n",
             "data: {\"type\":\"message_stop\"}\n\n",
         ]));
 
         $result = $this->consumeStream(new AnthropicService());
 
-        $this->assertSame(['Hello'], $result['chunks']);
+        $this->assertSame([['type' => 'text', 'text' => 'Hello']], $result['chunks']);
         $this->assertSame(10, $result['usage']['input_tokens']);
         $this->assertSame(5, $result['usage']['output_tokens']);
     }
@@ -52,7 +52,7 @@ class AnthropicStreamCompletionTest extends TestCase
     {
         $this->fakeSseResponse(implode('', [
             "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n",
-            "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Partial response\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Partial response\"}}\n\n",
             // No message_stop — stream just ends at EOF
         ]));
 
@@ -68,7 +68,7 @@ class AnthropicStreamCompletionTest extends TestCase
     {
         $this->fakeSseResponse(implode('', [
             "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\n",
-            "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hi\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n",
             "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3}}\n\n",
             "data: {\"type\":\"message_stop\"}\n\n",
             "data: [DONE]\n\n",
@@ -76,7 +76,7 @@ class AnthropicStreamCompletionTest extends TestCase
 
         $result = $this->consumeStream(new AnthropicService());
 
-        $this->assertSame(['Hi'], $result['chunks']);
+        $this->assertSame([['type' => 'text', 'text' => 'Hi']], $result['chunks']);
         $this->assertSame(5, $result['usage']['input_tokens']);
         $this->assertSame(3, $result['usage']['output_tokens']);
     }
@@ -86,12 +86,12 @@ class AnthropicStreamCompletionTest extends TestCase
         // [DONE] alone should also count as completion (some API versions may omit message_stop)
         $this->fakeSseResponse(implode('', [
             "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\n",
-            "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hi\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n",
             "data: [DONE]\n\n",
         ]));
 
         $result = $this->consumeStream(new AnthropicService());
 
-        $this->assertSame(['Hi'], $result['chunks']);
+        $this->assertSame([['type' => 'text', 'text' => 'Hi']], $result['chunks']);
     }
 }

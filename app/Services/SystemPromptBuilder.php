@@ -8,6 +8,7 @@ use App\Models\PersonalityTrait;
 use App\Models\Profile;
 use App\Models\Project;
 use App\Models\Signal;
+use App\Models\User;
 
 class SystemPromptBuilder
 {
@@ -15,6 +16,11 @@ class SystemPromptBuilder
         private int $userId,
         private ?Agent $agent = null,
     ) {}
+
+    private function teamId(): ?int
+    {
+        return User::find($this->userId)?->currentOrOwnedTeam()?->id;
+    }
 
     /**
      * Build the full system prompt for a conversation.
@@ -157,7 +163,7 @@ PROMPT;
             $this->recentPerformance(),
             Learning::buildContextBlock($this->userId),
             Profile::buildSummary($this->userId),
-            Project::buildProjectContext($this->userId),
+            Project::buildProjectContext($this->userId, $this->teamId()),
         ]);
 
         if (empty($sections)) {

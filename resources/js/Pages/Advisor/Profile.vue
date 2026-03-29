@@ -123,8 +123,8 @@ function formatDate(dateStr) {
             </div>
         </template>
 
-        <div class="py-12">
-            <div class="max-w-4xl mx-auto sm:px-6 lg:px-8 space-y-8">
+        <div class="py-6 sm:py-12">
+            <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
 
                 <!-- Empty state -->
                 <div
@@ -145,7 +145,7 @@ function formatDate(dateStr) {
                         <p class="text-sm text-gray-500 mt-0.5">Stable characteristics inferred across your conversations</p>
                     </div>
                     <div class="divide-y divide-gray-50">
-                        <div v-for="obs in localObservations" :key="obs.id" class="px-6 py-3 flex items-start justify-between gap-4">
+                        <div v-for="obs in localObservations" :key="obs.id" class="px-4 sm:px-6 py-3 flex items-start justify-between gap-3">
                             <div class="min-w-0">
                                 <span class="text-sm font-medium text-gray-600 capitalize">{{ obs.key.replace(/_/g, ' ') }}</span>
                                 <p class="text-sm text-gray-800 mt-0.5">{{ obs.value }}</p>
@@ -242,7 +242,10 @@ function formatDate(dateStr) {
                             <div v-for="project in items" :key="project.name" class="px-6 py-3">
                                 <div class="flex items-start justify-between gap-4">
                                     <div>
-                                        <p class="text-sm font-medium text-gray-800">{{ project.name }}</p>
+                                        <div class="flex items-center gap-2">
+                                            <p class="text-sm font-medium text-gray-800">{{ project.name }}</p>
+                                            <span v-if="project.team_id" class="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">shared</span>
+                                        </div>
                                         <p v-if="project.description" class="text-xs text-gray-500 mt-0.5">{{ project.description }}</p>
                                         <p v-if="project.notes" class="text-xs text-gray-400 mt-0.5 italic">{{ project.notes }}</p>
                                     </div>

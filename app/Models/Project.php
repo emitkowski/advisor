@@ -13,6 +13,7 @@ class Project extends Model
 
     protected $fillable = [
         'user_id',
+        'team_id',
         'name',
         'description',
         'status',
@@ -37,6 +38,11 @@ class Project extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     public function scopeActive(Builder $query): Builder
@@ -67,12 +73,18 @@ class Project extends Model
      * Build a project summary for system prompt injection.
      * Particularly highlights abandoned projects for follow-through tracking.
      */
-    public static function buildProjectContext(int $userId): string
+    public static function buildProjectContext(int $userId, ?int $teamId = null): string
     {
-        $projects = static::where('user_id', $userId)
+        $projects = static::where(function ($q) use ($userId, $teamId) {
+                $q->where('user_id', $userId);
+                if ($teamId) {
+                    $q->orWhere('team_id', $teamId);
+                }
+            })
             ->orderBy('last_seen_at', 'desc')
             ->limit(20)
             ->get()
+            ->unique('name')
             ->groupBy('status');
 
         if ($projects->isEmpty()) {

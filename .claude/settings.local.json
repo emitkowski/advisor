@@ -95,7 +95,10 @@
       "Bash(./vendor/bin/sail npm:*)",
       "Bash(openssl x509:*)",
       "Bash(echo $APP_URL)",
-      "Bash(node -e \"console.log\\(''APP_URL:'', process.env.APP_URL, ''APP_DOMAIN:'', process.env.APP_DOMAIN\\)\")"
+      "Bash(node -e \"console.log\\(''APP_URL:'', process.env.APP_URL, ''APP_DOMAIN:'', process.env.APP_DOMAIN\\)\")",
+      "Bash(pkill -9 -f vite)",
+      "Bash(fuser -k 5173/tcp 5174/tcp 5175/tcp 5176/tcp)",
+      "Bash(/dev/null grep:*)"
     ],
     "deny": []
   },

@@ -18,15 +18,16 @@ class ProcessSessionLearningTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function mockClaude(array $learnings = [], array $observations = [], array $projects = [], ?array $rating = null, string $title = 'Test Session Title'): void
+    private function mockClaude(array $learnings = [], array $observations = [], array $projects = [], ?array $rating = null, string $title = 'Test Session Title', string $summary = 'A test summary.'): void
     {
-        $this->mock(AnthropicService::class, function (MockInterface $mock) use ($learnings, $observations, $projects, $rating, $title) {
+        $this->mock(AnthropicService::class, function (MockInterface $mock) use ($learnings, $observations, $projects, $rating, $title, $summary) {
             $mock->shouldReceive('completeJson')
                 ->andReturnValues([
-                    ['title'         => $title],
-                    ['learnings'     => $learnings],
-                    ['observations'  => $observations],
-                    ['projects'      => $projects],
+                    ['title'        => $title],
+                    ['summary'      => $summary],
+                    ['learnings'    => $learnings],
+                    ['observations' => $observations],
+                    ['projects'     => $projects],
                     $rating ?? ['sentiment' => 0.8, 'rating' => 8.0, 'reasoning' => 'Engaged user'],
                 ]);
         });
@@ -233,6 +234,17 @@ class ProcessSessionLearningTest extends TestCase
         $this->assertSame('Evaluating the SaaS Idea', $session->fresh()->title);
     }
 
+    public function test_sets_learnings_extracted_at_on_completion(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->assertNull($session->learnings_extracted_at);
+        $this->mockClaude();
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertNotNull($session->fresh()->learnings_extracted_at);
+    }
+
     public function test_project_name_uses_exact_match_not_substring(): void
     {
         $session = $this->sessionWithMessages();
@@ -259,10 +271,11 @@ class ProcessSessionLearningTest extends TestCase
         $session = AdvisorSession::factory()->withMessages()->create(['title' => 'Already Set']);
 
         $this->mock(AnthropicService::class, function (MockInterface $mock) {
-            // title step should be skipped — completeJson called only 4 times, not 5
+            // title step is skipped — completeJson called 5 times (summary, learnings, observations, projects, rating)
             $mock->shouldReceive('completeJson')
-                ->times(4)
+                ->times(5)
                 ->andReturnValues([
+                    ['summary'      => 'A summary.'],
                     ['learnings'    => []],
                     ['observations' => []],
                     ['projects'     => []],
@@ -356,5 +369,18 @@ class ProcessSessionLearningTest extends TestCase
         ProcessSessionLearning::dispatchSync($session->id);
 
         $this->assertDatabaseHas('projects', ['name' => 'My App', 'status' => 'unclear']);
+    }
+
+    public function test_generates_summary_for_session(): void
+    {
+        $session = $this->sessionWithMessages();
+        $this->mockClaude(summary: 'The user explored pricing strategies for a new SaaS product.');
+
+        ProcessSessionLearning::dispatchSync($session->id);
+
+        $this->assertSame(
+            'The user explored pricing strategies for a new SaaS product.',
+            $session->fresh()->summary
+        );
     }
 }
