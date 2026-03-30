@@ -39,17 +39,26 @@ class ProcessSessionLearning implements ShouldQueue
             return;
         }
 
-        $userId      = $session->user_id;
-        $teamId      = $session->user->currentOrOwnedTeam()?->id;
-        $threadText  = $this->formatThreadForAnalysis($session->thread);
+        $userId     = $session->user_id;
+        $teamId     = $session->user->currentOrOwnedTeam()?->id;
+        $fullThread = $this->formatThreadForAnalysis($session->thread);
+        // For personal learning extraction, only include messages from the session owner
+        // (or messages with no user_id, for backward compatibility with pre-joint sessions)
+        $ownerThread = $this->formatThreadForAnalysis(
+            array_filter($session->thread, fn ($msg) =>
+                $msg['role'] === 'assistant'
+                || !isset($msg['user_id'])
+                || $msg['user_id'] === $userId
+            )
+        );
 
         try {
-            $this->generateTitle($claude, $session, $threadText);
-            $this->generateSummary($claude, $session, $threadText);
-            $this->extractLearnings($claude, $userId, $session->id, $threadText);
-            $this->extractProfiles($claude, $userId, $threadText);
-            $this->extractProjects($claude, $userId, $teamId, $session->id, $threadText);
-            $this->inferImplicitRating($claude, $userId, $session->id, $threadText);
+            $this->generateTitle($claude, $session, $fullThread);
+            $this->generateSummary($claude, $session, $fullThread);
+            $this->extractLearnings($claude, $userId, $session->id, $ownerThread);
+            $this->extractProfiles($claude, $userId, $ownerThread);
+            $this->extractProjects($claude, $userId, $teamId, $session->id, $ownerThread);
+            $this->inferImplicitRating($claude, $userId, $session->id, $ownerThread);
             $session->update(['learnings_extracted_at' => now()]);
         } catch (\Throwable $e) {
             Log::error('ProcessSessionLearning failed', [

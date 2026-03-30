@@ -10,6 +10,14 @@ Route::get('/', function () {
 
 Route::get('/shared/{token}', [AdvisorController::class, 'sharedSession'])->name('advisor.shared');
 Route::get('/invite/{token}', [InvitationController::class, 'show'])->name('team.invitation');
+Route::middleware([
+    'auth:sanctum',
+    config('jetstream.auth_session'),
+    'verified',
+])->group(function () {
+    Route::get('/join/{token}',  [AdvisorController::class, 'joinSession'])->name('advisor.join');
+    Route::post('/join/{token}', [AdvisorController::class, 'acceptJoin'])->name('advisor.join.accept');
+});
 
 Route::middleware([
     'auth:sanctum',

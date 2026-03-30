@@ -20,10 +20,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/sessions/{session}', [ChatController::class, 'show'])->name('sessions.show');
         Route::patch('/sessions/{session}', [ChatController::class, 'update'])->name('sessions.update');
         Route::post('/sessions/{session}/message', [ChatController::class, 'message'])->name('sessions.message')->middleware('throttle:20,1');
+        Route::get('/sessions/{session}/stream', [ChatController::class, 'sessionStream'])->name('sessions.stream');
         Route::post('/sessions/{session}/rate', [ChatController::class, 'rate'])->name('sessions.rate');
         Route::post('/sessions/{session}/close', [ChatController::class, 'close'])->name('sessions.close');
         Route::post('/sessions/{session}/share', [ChatController::class, 'share'])->name('sessions.share');
         Route::delete('/sessions/{session}/share', [ChatController::class, 'unshare'])->name('sessions.unshare');
+        Route::post('/sessions/{session}/join-link', [ChatController::class, 'generateJoinLink'])->name('sessions.join-link.store');
+        Route::delete('/sessions/{session}/join-link', [ChatController::class, 'revokeJoinLink'])->name('sessions.join-link.destroy');
+        Route::delete('/sessions/{session}/leave', [ChatController::class, 'leaveSession'])->name('sessions.leave');
         Route::delete('/sessions/{session}', [ChatController::class, 'destroy'])->name('sessions.destroy');
 
         Route::patch('/personality-traits/{traitName}', [ChatController::class, 'updateTrait'])->name('personality-traits.update');

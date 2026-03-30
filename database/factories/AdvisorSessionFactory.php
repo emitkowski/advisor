@@ -27,6 +27,15 @@ class AdvisorSessionFactory extends Factory
         ];
     }
 
+    public function withParticipant(\App\Models\User $user): static
+    {
+        return $this->afterCreating(function (AdvisorSession $session) use ($user) {
+            $session->participants()->syncWithoutDetaching([
+                $user->id => ['joined_at' => now()],
+            ]);
+        });
+    }
+
     public function closed(): static
     {
         return $this->state(fn (array $attributes) => [

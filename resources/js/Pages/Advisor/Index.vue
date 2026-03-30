@@ -200,6 +200,9 @@ function formatCost(session) {
                                     >
                                         {{ session.agent.name }}
                                     </span>
+                                    <span v-if="session.is_participant && session.user" class="hidden sm:inline shrink-0 text-xs px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium">
+                                        {{ session.user.name }}'s session
+                                    </span>
                                 </div>
                                 <div class="text-xs sm:text-sm text-gray-500 truncate">
                                     {{ formatDate(session.created_at) }}
@@ -218,6 +221,7 @@ function formatCost(session) {
                             <span v-if="!session.ended_at" class="text-green-600 font-medium text-xs sm:text-sm">Active</span>
                             <span v-else class="hidden sm:inline text-xs sm:text-sm">Closed</span>
                             <button
+                                v-if="!session.is_participant"
                                 @click="deleteSession($event, session)"
                                 :disabled="deletingIds.has(session.id)"
                                 title="Delete session"

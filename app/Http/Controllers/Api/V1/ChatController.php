@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -71,8 +72,11 @@ class ChatController extends Controller
      */
     public function show(int $sessionId): JsonResponse
     {
-        $session = AdvisorSession::where('user_id', Auth::id())
-            ->findOrFail($sessionId);
+        $session = AdvisorSession::findOrFail($sessionId);
+
+        if (!$session->isAccessibleBy(Auth::id())) {
+            abort(404);
+        }
 
         return response()->json($session);
     }
@@ -109,10 +113,13 @@ class ChatController extends Controller
 
         // Atomically validate session state and record idempotency key
         $session = DB::transaction(function () use ($sessionId, $idempotencyKey) {
-            $session = AdvisorSession::where('user_id', Auth::id())
-                ->with('agent')
+            $session = AdvisorSession::with('agent')
                 ->lockForUpdate()
                 ->findOrFail($sessionId);
+
+            if (!$session->isAccessibleBy(Auth::id())) {
+                abort(404);
+            }
 
             if (!$session->isActive()) {
                 abort(422, 'Session is closed. Start a new session.');
@@ -139,15 +146,34 @@ class ChatController extends Controller
         // Detect explicit rating now, but persist it only after streaming succeeds
         $explicitRating = Signal::detectExplicitRating($userMessage);
 
+        // Participants: load for system prompt context
+        $participants = $session->participants()
+            ->where('users.id', '!=', $session->user_id)
+            ->get(['users.id', 'users.name'])
+            ->toArray();
+
+        // Prefix message with sender name so the agent knows who's speaking in joint sessions
+        $isOwner   = Auth::id() === $session->user_id;
+        $apiContent = (!$isOwner && count($participants) > 0)
+            ? '[' . Auth::user()->name . ']: ' . $userMessage
+            : $userMessage;
+
         // Build messages array for API — include new user message but don't persist yet
         $messages = array_merge($session->getApiMessages(), [
-            ['role' => 'user', 'content' => $userMessage],
+            ['role' => 'user', 'content' => $apiContent],
         ]);
 
-        // Build system prompt with all memory context
-        $systemPrompt = (new SystemPromptBuilder(Auth::id(), $session->agent))->build();
+        // Build system prompt anchored to session owner's memory context
+        $systemPrompt = (new SystemPromptBuilder($session->user_id, $session->agent, $participants))->build();
 
-        return response()->stream(function () use ($session, $systemPrompt, $messages, $userMessage, $explicitRating) {
+        $senderId   = Auth::id();
+        $senderName = Auth::user()->name;
+
+        // Clear the Redis stream so late-joining participants always read the current response
+        $streamKey = "session:{$session->id}:stream";
+        Redis::del($streamKey);
+
+        return response()->stream(function () use ($session, $systemPrompt, $messages, $userMessage, $explicitRating, $senderId, $senderName, $streamKey) {
             $fullResponse = '';
 
             try {
@@ -156,11 +182,17 @@ class ChatController extends Controller
                 foreach ($gen as $event) {
                     if ($event['type'] === 'text') {
                         $fullResponse .= $event['text'];
-                        echo "data: " . json_encode(['text' => $event['text']]) . "\n\n";
+                        $payload = json_encode(['text' => $event['text']]);
+                        echo "data: {$payload}\n\n";
+                        Redis::xadd($streamKey, '*', ['d' => $payload]);
                     } elseif ($event['type'] === 'search_start') {
-                        echo "data: " . json_encode(['searching' => true]) . "\n\n";
+                        $payload = json_encode(['searching' => true]);
+                        echo "data: {$payload}\n\n";
+                        Redis::xadd($streamKey, '*', ['d' => $payload]);
                     } elseif ($event['type'] === 'search_end') {
-                        echo "data: " . json_encode(['searching' => false]) . "\n\n";
+                        $payload = json_encode(['searching' => false]);
+                        echo "data: {$payload}\n\n";
+                        Redis::xadd($streamKey, '*', ['d' => $payload]);
                     }
                     ob_flush();
                     flush();
@@ -169,7 +201,7 @@ class ChatController extends Controller
                 $usage = $gen->getReturn() ?? [];
 
                 // Only persist messages and signals after successful completion
-                $session->addMessage('user', $userMessage);
+                $session->addMessage('user', $userMessage, $senderId, $senderName);
                 $session->addMessage('assistant', $fullResponse);
                 $session->accumulateTokens($usage['input_tokens'] ?? 0, $usage['output_tokens'] ?? 0);
 
@@ -185,11 +217,14 @@ class ChatController extends Controller
                 }
 
                 // Signal stream complete, include per-exchange token counts for client display
-                echo "data: " . json_encode([
+                $donePayload = json_encode([
                     'done'          => true,
                     'input_tokens'  => $usage['input_tokens'] ?? 0,
                     'output_tokens' => $usage['output_tokens'] ?? 0,
-                ]) . "\n\n";
+                ]);
+                echo "data: {$donePayload}\n\n";
+                Redis::xadd($streamKey, '*', ['d' => $donePayload]);
+                Redis::expire($streamKey, 300);
                 ob_flush();
                 flush();
 
@@ -201,7 +236,10 @@ class ChatController extends Controller
                 $errorMessage = $e instanceof UserFacingException
                     ? $e->getMessage()
                     : 'An error occurred. Please try again.';
-                echo "data: " . json_encode(['error' => $errorMessage]) . "\n\n";
+                $errPayload = json_encode(['error' => $errorMessage]);
+                echo "data: {$errPayload}\n\n";
+                Redis::xadd($streamKey, '*', ['d' => $errPayload]);
+                Redis::expire($streamKey, 60);
                 ob_flush();
                 flush();
             }
@@ -347,6 +385,110 @@ class ChatController extends Controller
         $session->update(['share_token' => null]);
 
         return response()->json(['message' => 'Share link revoked.']);
+    }
+
+    /**
+     * Generate a join link for an active session (owner only).
+     */
+    public function generateJoinLink(int $sessionId): JsonResponse
+    {
+        $session = AdvisorSession::where('user_id', Auth::id())->findOrFail($sessionId);
+
+        if (!$session->isActive()) {
+            return response()->json(['message' => 'Cannot generate a join link for a closed session.'], 422);
+        }
+
+        if (!$session->join_token) {
+            $session->update(['join_token' => Str::random(32)]);
+        }
+
+        return response()->json([
+            'join_url' => route('advisor.join', $session->join_token),
+        ]);
+    }
+
+    /**
+     * Revoke the join link for a session (owner only).
+     * Existing participants remain; this only prevents new joins.
+     */
+    public function revokeJoinLink(int $sessionId): JsonResponse
+    {
+        $session = AdvisorSession::where('user_id', Auth::id())->findOrFail($sessionId);
+
+        $session->update(['join_token' => null]);
+
+        return response()->json(['message' => 'Join link revoked.']);
+    }
+
+    /**
+     * Leave a session as a participant. Messages remain; only the pivot row is removed.
+     */
+    public function leaveSession(int $sessionId): JsonResponse
+    {
+        $session = AdvisorSession::findOrFail($sessionId);
+
+        // Owner cannot leave their own session
+        if ($session->user_id === Auth::id()) {
+            abort(422, 'You cannot leave a session you own.');
+        }
+
+        if (!$session->isAccessibleBy(Auth::id())) {
+            abort(404);
+        }
+
+        $session->participants()->detach(Auth::id());
+
+        return response()->json(['message' => 'You have left the session.']);
+    }
+
+    /**
+     * SSE endpoint for participants to receive the live AI stream in real time.
+     * Reads from a Redis stream that the owner's message() endpoint publishes to.
+     */
+    public function sessionStream(int $sessionId): StreamedResponse
+    {
+        $session = AdvisorSession::findOrFail($sessionId);
+
+        if (!$session->isAccessibleBy(Auth::id())) {
+            abort(404);
+        }
+
+        return response()->stream(function () use ($sessionId) {
+            $streamKey = "session:{$sessionId}:stream";
+            $lastId    = '0-0';
+            $deadline  = time() + 120; // hold connection for up to 2 minutes
+
+            while (time() < $deadline && !connection_aborted()) {
+                $results = Redis::xread([$streamKey => $lastId], 50, 1000);
+
+                if (empty($results)) {
+                    // No data yet — send a keepalive event so the connection stays open
+                    // and proxies reset their read timeout
+                    echo "data: {\"ping\":true}\n\n";
+                    ob_flush();
+                    flush();
+                    continue;
+                }
+
+                foreach (array_values($results)[0] as $entryId => $fields) {
+                    $lastId  = $entryId;
+                    $payload = $fields['d'] ?? '';
+                    echo "data: {$payload}\n\n";
+                    ob_flush();
+                    flush();
+
+                    $data = json_decode($payload, true);
+                    if (($data['done'] ?? false) || isset($data['error'])) {
+                        return;
+                    }
+                }
+            }
+        }, 200, [
+            'Content-Type'      => 'text/event-stream',
+            'Cache-Control'     => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+            'Connection'        => 'keep-alive',
+        ]);
     }
 
     /**

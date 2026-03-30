@@ -5,12 +5,44 @@ import MarkdownMessage from '@/Components/MarkdownMessage.vue';
 import { Link, router } from '@inertiajs/vue3';
 
 const props = defineProps({
-    session: Object,
-    model:   String,
-    pricing: Object,
+    session:       Object,
+    isOwner:       Boolean,
+    currentUserId:   Number,
+    currentUserName: String,
+    model:           String,
+    pricing:       Object,
 });
 
 const messages = ref(props.session.thread ?? []);
+
+// Assign a stable color to each unique participant (non-owner sender).
+const PARTICIPANT_COLORS = [
+    'bg-blue-600 text-white',
+    'bg-violet-600 text-white',
+    'bg-teal-600 text-white',
+    'bg-orange-500 text-white',
+    'bg-pink-600 text-white',
+];
+
+const participantColorMap = computed(() => {
+    const map = {};
+    let slot = 0;
+    for (const msg of messages.value) {
+        if (msg.role === 'user' && msg.user_id && msg.user_id !== props.session.user_id && !(msg.user_id in map)) {
+            map[msg.user_id] = PARTICIPANT_COLORS[slot % PARTICIPANT_COLORS.length];
+            slot++;
+        }
+    }
+    return map;
+});
+
+function userBubbleClasses(msg) {
+    if (msg.user_id && msg.user_id !== props.session.user_id && participantColorMap.value[msg.user_id]) {
+        return participantColorMap.value[msg.user_id];
+    }
+    return 'bg-gray-800 text-white';
+}
+
 const streamingText = ref('');
 const isStreaming = ref(false);
 const isSearching = ref(false);
@@ -54,6 +86,134 @@ async function copyShareUrl() {
     await navigator.clipboard.writeText(shareUrl.value);
     copyConfirmed.value = true;
     setTimeout(() => { copyConfirmed.value = false; }, 2000);
+}
+
+// --- Join link (owner only) ---
+const joinUrl = ref(props.session.join_token
+    ? `${window.location.origin}/join/${props.session.join_token}`
+    : null
+);
+const showJoinPopover  = ref(false);
+const isJoinLoading    = ref(false);
+const joinCopyConfirmed = ref(false);
+
+async function generateJoinLink() {
+    isJoinLoading.value = true;
+    try {
+        const { data } = await window.axios.post(`/api/v1/advisor/sessions/${props.session.id}/join-link`);
+        joinUrl.value = data.join_url;
+    } finally {
+        isJoinLoading.value = false;
+    }
+}
+
+async function revokeJoinLink() {
+    if (!confirm('Revoke this join link? No new participants can join, but current participants remain.')) return;
+    isJoinLoading.value = true;
+    try {
+        await window.axios.delete(`/api/v1/advisor/sessions/${props.session.id}/join-link`);
+        joinUrl.value = null;
+        showJoinPopover.value = false;
+    } finally {
+        isJoinLoading.value = false;
+    }
+}
+
+async function copyJoinUrl() {
+    await navigator.clipboard.writeText(joinUrl.value);
+    joinCopyConfirmed.value = true;
+    setTimeout(() => { joinCopyConfirmed.value = false; }, 2000);
+}
+
+// --- Polling (syncs user messages from other participants) ---
+const pollInterval = ref(null);
+
+function startPolling() {
+    pollInterval.value = setInterval(async () => {
+        if (isStreaming.value) return;
+        try {
+            const { data } = await window.axios.get(`/api/v1/advisor/sessions/${props.session.id}`);
+            if (data.thread && data.thread.length > messages.value.length) {
+                messages.value = data.thread;
+                scrollToBottom();
+            }
+            // Open SSE stream when the last message is from a user (AI is about to respond)
+            if (!props.isOwner && !participantEventSource.value) {
+                const last = data.thread?.[data.thread.length - 1];
+                if (last?.role === 'user') {
+                    openParticipantStream();
+                }
+            }
+        } catch { /* ignore */ }
+    }, 3000);
+}
+
+// --- SSE stream (participants receive live AI responses) ---
+const participantEventSource = ref(null);
+
+async function syncThread() {
+    try {
+        const { data } = await window.axios.get(`/api/v1/advisor/sessions/${props.session.id}`);
+        if (data.thread) {
+            messages.value = data.thread;
+            await nextTick();
+            scrollToBottom();
+        }
+    } catch { /* ignore */ }
+}
+
+function openParticipantStream() {
+    if (props.isOwner || !isActive.value || participantEventSource.value) return;
+
+    const es = new EventSource(`/api/v1/advisor/sessions/${props.session.id}/stream`);
+    participantEventSource.value = es;
+
+    es.onmessage = async (event) => {
+        let data;
+        try { data = JSON.parse(event.data); } catch { return; }
+
+        if (data.ping) return;
+
+        if (data.searching !== undefined) {
+            isSearching.value = data.searching;
+        }
+        if (data.text) {
+            isSearching.value = false;
+            isStreaming.value = true;
+            streamingText.value += data.text;
+        }
+        if (data.done) {
+            if (streamingText.value) {
+                messages.value.push({
+                    role: 'assistant',
+                    content: streamingText.value,
+                    timestamp: new Date().toISOString(),
+                });
+                streamingText.value = '';
+            }
+            isStreaming.value = false;
+            isSearching.value = false;
+            // Sync full thread to reconcile any user messages from other participants
+            await syncThread();
+            // Close — polling will reopen next time a user message is detected
+            es.close();
+            participantEventSource.value = null;
+        }
+        if (data.error) {
+            isStreaming.value = false;
+            streamingText.value = '';
+            error.value = data.error;
+            es.close();
+            participantEventSource.value = null;
+        }
+    };
+
+    es.onerror = () => {
+        es.close();
+        participantEventSource.value = null;
+        isStreaming.value = false;
+        streamingText.value = '';
+    };
 }
 
 // --- Export as Markdown ---
@@ -166,13 +326,33 @@ function scrollToBottom() {
     });
 }
 
+// Show "Advisor is thinking…" for participants when the last message is a user message
+// with no following assistant response (i.e., the owner sent and we're waiting for the stream).
+const advisorIsThinking = computed(() => {
+    if (isStreaming.value) return false;
+    const last = messages.value[messages.value.length - 1];
+    return last?.role === 'user';
+});
+
 watch(() => streamingText.value, scrollToBottom);
 watch(() => messages.value.length, scrollToBottom);
-onMounted(scrollToBottom);
+onMounted(() => {
+    scrollToBottom();
+    if (isActive.value) {
+        startPolling();
+    }
+});
 
-function onDocumentClick() { showSharePopover.value = false; }
+function onDocumentClick() {
+    showSharePopover.value = false;
+    showJoinPopover.value  = false;
+}
 onMounted(() => document.addEventListener('click', onDocumentClick));
-onUnmounted(() => document.removeEventListener('click', onDocumentClick));
+onUnmounted(() => {
+    document.removeEventListener('click', onDocumentClick);
+    clearInterval(pollInterval.value);
+    participantEventSource.value?.close();
+});
 
 async function sendMessage() {
     if (!canSend.value) return;
@@ -183,10 +363,14 @@ async function sendMessage() {
     const idempotencyKey = crypto.randomUUID();
     input.value = '';
 
+    // Close any open participant SSE — the fetch stream from this request takes over
+    participantEventSource.value?.close();
+    participantEventSource.value = null;
+
     isStreaming.value = true;
     streamingText.value = '';
     const optimisticIndex = messages.value.length;
-    messages.value.push({ role: 'user', content, timestamp: new Date().toISOString() });
+    messages.value.push({ role: 'user', content, timestamp: new Date().toISOString(), user_id: props.currentUserId, user_name: props.currentUserName });
     await nextTick();
 
     const controller = new AbortController();
@@ -294,6 +478,9 @@ async function closeSession() {
         await window.axios.post(`/api/v1/advisor/sessions/${props.session.id}/close`);
         isActive.value = false;
         isExtracting.value = true;
+        clearInterval(pollInterval.value);
+        participantEventSource.value?.close();
+        participantEventSource.value = null;
         pollForExtraction();
     } catch (e) {
         error.value = 'Failed to close session.';
@@ -332,6 +519,22 @@ function handleKeydown(e) {
     }
 }
 
+const isLeaving = ref(false);
+
+async function leaveSession() {
+    if (!confirm('Leave this session? Your messages will remain, but you will no longer see new replies.')) return;
+    isLeaving.value = true;
+    participantEventSource.value?.close();
+    participantEventSource.value = null;
+    try {
+        await window.axios.delete(`/api/v1/advisor/sessions/${props.session.id}/leave`);
+        router.visit(route('advisor.index'));
+    } catch {
+        error.value = 'Failed to leave the session.';
+        isLeaving.value = false;
+    }
+}
+
 async function rateMessage(index, rating) {
     if (ratings.value[index] !== undefined) return;
 
@@ -363,19 +566,10 @@ async function rateMessage(index, rating) {
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
-                    <!-- Active agent badge -->
-                    <span
-                        v-if="session.agent"
-                        class="hidden sm:inline text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
-                        :style="{ backgroundColor: (session.agent.color || '#6B7280') + '20', color: session.agent.color || '#6B7280' }"
-                    >
-                        {{ session.agent.name }}
-                    </span>
-
-                    <!-- Inline title editing -->
+                    <!-- Inline title editing (owner only) -->
                     <div class="group flex items-center gap-1.5 min-w-0">
                         <input
-                            v-if="isEditingTitle"
+                            v-if="isEditingTitle && isOwner"
                             ref="titleInputEl"
                             v-model="sessionTitle"
                             @keydown="handleTitleKeydown"
@@ -391,7 +585,7 @@ async function rateMessage(index, rating) {
                             {{ sessionTitle || 'Untitled session' }}
                         </h2>
                         <button
-                            v-if="!isEditingTitle"
+                            v-if="isOwner && !isEditingTitle"
                             @click="startEditingTitle"
                             title="Edit title"
                             class="opacity-0 group-hover:opacity-100 shrink-0 text-gray-400 hover:text-gray-600 transition"
@@ -401,6 +595,23 @@ async function rateMessage(index, rating) {
                             </svg>
                         </button>
                     </div>
+
+                    <!-- Active agent badge -->
+                    <span
+                        v-if="session.agent"
+                        class="hidden sm:inline text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
+                        :style="{ backgroundColor: (session.agent.color || '#6B7280') + '20', color: session.agent.color || '#6B7280' }"
+                    >
+                        {{ session.agent.name }}
+                    </span>
+
+                    <!-- Owner badge (shown to participants) -->
+                    <span
+                        v-if="!isOwner && session.user"
+                        class="hidden sm:inline text-xs px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium shrink-0"
+                    >
+                        {{ session.user.name }}'s session
+                    </span>
                 </div>
 
                 <div class="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -421,8 +632,73 @@ async function rateMessage(index, rating) {
                         <span class="hidden sm:inline">{{ exportConfirmed ? 'Copied!' : 'Copy' }}</span>
                     </button>
 
-                    <!-- Share button + popover -->
-                    <div class="relative">
+                    <!-- Invite button + popover (owner + active only) -->
+                    <div v-if="isOwner && isActive" class="relative">
+                        <button
+                            @click.stop="showJoinPopover = !showJoinPopover"
+                            title="Invite someone to this session"
+                            class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50 transition"
+                        >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                            </svg>
+                            <span class="hidden sm:inline">Invite</span>
+                        </button>
+
+                        <div
+                            v-if="showJoinPopover"
+                            class="absolute right-0 top-full mt-2 w-[calc(100vw-1rem)] sm:w-80 max-w-sm bg-white rounded-xl shadow-lg border border-gray-200 p-4 z-20"
+                            @click.stop
+                        >
+                            <div class="flex items-center justify-between mb-3">
+                                <span class="text-sm font-medium text-gray-800">Invite to this session</span>
+                                <button @click="showJoinPopover = false" class="text-gray-400 hover:text-gray-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div v-if="joinUrl">
+                                <p class="text-xs text-gray-500 mb-2">Anyone with this link can join and send messages.</p>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <input
+                                        :value="joinUrl"
+                                        readonly
+                                        class="flex-1 text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-600 truncate focus:outline-none"
+                                    />
+                                    <button
+                                        @click="copyJoinUrl"
+                                        class="shrink-0 px-3 py-2 text-xs font-medium rounded-lg transition"
+                                        :class="joinCopyConfirmed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                    >
+                                        {{ joinCopyConfirmed ? 'Copied!' : 'Copy' }}
+                                    </button>
+                                </div>
+                                <button
+                                    @click="revokeJoinLink"
+                                    :disabled="isJoinLoading"
+                                    class="text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition"
+                                >
+                                    Revoke link
+                                </button>
+                            </div>
+
+                            <div v-else>
+                                <p class="text-xs text-gray-500 mb-3">Generate a link so someone can join this conversation and send messages.</p>
+                                <button
+                                    @click="generateJoinLink"
+                                    :disabled="isJoinLoading"
+                                    class="w-full py-2 text-sm font-medium bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition"
+                                >
+                                    {{ isJoinLoading ? 'Generating…' : 'Create join link' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Share button + popover (owner only) -->
+                    <div v-if="isOwner" class="relative">
                         <button
                             @click.stop="showSharePopover = !showSharePopover"
                             title="Share session"
@@ -488,7 +764,7 @@ async function rateMessage(index, rating) {
                     </div>
 
                     <button
-                        v-if="isActive"
+                        v-if="isOwner && isActive"
                         @click="closeSession"
                         :disabled="isClosing || isStreaming"
                         class="inline-flex items-center px-2 sm:px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-50 transition"
@@ -496,7 +772,16 @@ async function rateMessage(index, rating) {
                         <span class="sm:hidden">{{ isClosing ? '…' : 'End' }}</span>
                         <span class="hidden sm:inline">{{ isClosing ? 'Closing…' : 'End Session' }}</span>
                     </button>
-                    <span v-else class="hidden sm:inline text-sm text-gray-400">Session closed</span>
+                    <button
+                        v-if="!isOwner"
+                        @click="leaveSession"
+                        :disabled="isLeaving"
+                        class="inline-flex items-center px-2 sm:px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-50 transition"
+                    >
+                        <span class="sm:hidden">{{ isLeaving ? '…' : 'Leave' }}</span>
+                        <span class="hidden sm:inline">{{ isLeaving ? 'Leaving…' : 'Leave Session' }}</span>
+                    </button>
+                    <span v-if="!isActive" class="hidden sm:inline text-sm text-gray-400">Session closed</span>
                 </div>
             </div>
         </template>
@@ -518,10 +803,25 @@ async function rateMessage(index, rating) {
                             class="flex flex-col"
                             :class="msg.role === 'user' ? 'items-end' : 'items-start'"
                         >
+                            <div v-if="msg.role === 'user' && msg.user_name" class="flex items-center gap-1.5 mb-1.5 px-1">
+                                <span class="text-sm font-semibold"
+                                    :class="msg.user_id && msg.user_id !== session.user_id ? 'text-gray-600' : 'text-gray-400'"
+                                >
+                                    {{ msg.user_name }}
+                                </span>
+                                <span
+                                    class="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                                    :class="msg.user_id === session.user_id
+                                        ? 'bg-gray-100 text-gray-500'
+                                        : 'bg-blue-50 text-blue-500'"
+                                >
+                                    {{ msg.user_id === session.user_id ? 'owner' : 'invitee' }}
+                                </span>
+                            </div>
                             <div
                                 class="max-w-[85%] rounded-2xl px-4 py-3"
                                 :class="msg.role === 'user'
-                                    ? 'bg-gray-800 text-white rounded-br-sm'
+                                    ? [userBubbleClasses(msg), 'rounded-br-sm']
                                     : 'bg-gray-100 text-gray-800 rounded-bl-sm'"
                             >
                                 <MarkdownMessage :content="msg.content" />
@@ -561,8 +861,8 @@ async function rateMessage(index, rating) {
                             </div>
                         </div>
 
-                        <!-- Streaming response -->
-                        <div v-if="isStreaming || streamingText" class="flex justify-start">
+                        <!-- Streaming response / thinking indicator -->
+                        <div v-if="isStreaming || streamingText || advisorIsThinking" class="flex justify-start">
                             <div class="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-3 bg-gray-100 text-gray-800">
                                 <MarkdownMessage v-if="streamingText" :content="streamingText" />
                                 <span v-else-if="isSearching" class="inline-flex items-center gap-2 text-gray-500">

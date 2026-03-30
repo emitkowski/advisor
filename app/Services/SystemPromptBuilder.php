@@ -13,8 +13,9 @@ use App\Models\User;
 class SystemPromptBuilder
 {
     public function __construct(
-        private int $userId,
-        private ?Agent $agent = null,
+        private int    $userId,
+        private ?Agent $agent        = null,
+        private array  $participants = [],
     ) {}
 
     private function teamId(): ?int
@@ -29,6 +30,7 @@ class SystemPromptBuilder
     public function build(): string
     {
         $sections = [
+            $this->participantContext(),
             $this->coreIdentity(),
             $this->theAlgorithm(),
             $this->personalityBlock(),
@@ -36,6 +38,26 @@ class SystemPromptBuilder
         ];
 
         return implode("\n\n---\n\n", array_filter($sections));
+    }
+
+    private function participantContext(): string
+    {
+        if (empty($this->participants)) {
+            return '';
+        }
+
+        $names = implode(', ', array_column($this->participants, 'name'));
+
+        return <<<PROMPT
+# Joint Session
+
+This is a joint session with multiple participants.
+The session owner is the primary participant whose memory and profile you know.
+The following people have also joined: {$names}.
+
+Each user message from a non-owner participant is prefixed with their name in the format "[Name]: message".
+Address your response to whoever sent the most recent message, but keep the full group context in mind.
+PROMPT;
     }
 
     /**

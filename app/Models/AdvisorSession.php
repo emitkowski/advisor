@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Casts\AsArrayObject;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use App\Models\Agent;
@@ -30,6 +31,7 @@ class AdvisorSession extends Model
         'learnings_extracted_at',
         'summary',
         'share_token',
+        'join_token',
     ];
 
     protected $casts = [
@@ -66,20 +68,40 @@ class AdvisorSession extends Model
         return $this->hasMany(Learning::class);
     }
 
+    public function participants(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'advisor_session_participants')
+            ->withPivot('joined_at')
+            ->withTimestamps();
+    }
+
+    public function isAccessibleBy(int $userId): bool
+    {
+        return $this->user_id === $userId
+            || $this->participants()->where('users.id', $userId)->exists();
+    }
+
     /**
      * Add a message to the thread and increment message count.
      * Uses a transaction + row lock to safely read-modify-write the thread JSON.
      */
-    public function addMessage(string $role, string $content): void
+    public function addMessage(string $role, string $content, ?int $userId = null, ?string $userName = null): void
     {
-        DB::transaction(function () use ($role, $content) {
+        DB::transaction(function () use ($role, $content, $userId, $userName) {
             $fresh    = static::query()->lockForUpdate()->findOrFail($this->id);
             $thread   = $fresh->thread ?? [];
-            $thread[] = [
+            $entry    = [
                 'role'      => $role,
                 'content'   => $content,
                 'timestamp' => now()->toISOString(),
             ];
+
+            if ($userId !== null) {
+                $entry['user_id']   = $userId;
+                $entry['user_name'] = $userName;
+            }
+
+            $thread[] = $entry;
 
             $this->update([
                 'thread'        => $thread,

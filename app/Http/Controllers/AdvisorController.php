@@ -39,16 +39,27 @@ class AdvisorController extends Controller
         $agentId = $request->integer('agent_id') ?: null;
         $status  = $request->string('status')->value();
 
-        $sessions = AdvisorSession::where('user_id', Auth::id())
+        $userId = Auth::id();
+
+        $sessions = AdvisorSession::where(function ($q) use ($userId) {
+                $q->where('user_id', $userId)
+                  ->orWhereHas('participants', fn ($p) => $p->where('users.id', $userId));
+            })
             ->when($search, fn ($q) => $q->where('title', 'like', "%{$search}%"))
             ->when($agentId, fn ($q) => $q->where('agent_id', $agentId))
             ->when($status === 'active', fn ($q) => $q->whereNull('ended_at'))
             ->when($status === 'closed', fn ($q) => $q->whereNotNull('ended_at'))
             ->orderBy('created_at', 'desc')
-            ->select(['id', 'agent_id', 'title', 'message_count', 'input_tokens', 'output_tokens', 'avg_rating', 'started_at', 'ended_at', 'created_at'])
-            ->with('agent:id,name,color')
+            ->select(['id', 'user_id', 'agent_id', 'title', 'message_count', 'input_tokens', 'output_tokens', 'avg_rating', 'started_at', 'ended_at', 'created_at'])
+            ->with(['agent:id,name,color', 'user:id,name'])
             ->paginate(20)
             ->withQueryString();
+
+        // Tag each session so the frontend knows if the current user is a participant (not owner)
+        $sessions->getCollection()->transform(function ($session) use ($userId) {
+            $session->is_participant = $session->user_id !== $userId;
+            return $session;
+        });
 
         $agents = $this->visibleAgentsQuery()
             ->orderBy('sort_order')
@@ -92,15 +103,69 @@ class AdvisorController extends Controller
 
     public function show(int $sessionId): Response
     {
-        $session = AdvisorSession::where('user_id', Auth::id())
-            ->with('agent')
-            ->findOrFail($sessionId);
+        $session = AdvisorSession::with(['agent', 'user:id,name'])->findOrFail($sessionId);
+
+        if (!$session->isAccessibleBy(Auth::id())) {
+            abort(404);
+        }
 
         return Inertia::render('Advisor/Chat', [
-            'session' => $session,
-            'model'   => config('advisor.model'),
-            'pricing' => config('advisor.pricing'),
+            'session'       => $session,
+            'isOwner'         => $session->user_id === Auth::id(),
+            'currentUserId'   => Auth::id(),
+            'currentUserName' => Auth::user()->name,
+            'model'         => config('advisor.model'),
+            'pricing'       => config('advisor.pricing'),
         ]);
+    }
+
+    public function joinSession(string $token): Response|\Illuminate\Http\RedirectResponse
+    {
+        $session = AdvisorSession::with(['agent', 'user:id,name'])->where('join_token', $token)->firstOrFail();
+
+        if (!$session->isActive()) {
+            return redirect()->route('advisor.index')
+                ->with('flash.banner', 'This session has ended and can no longer be joined.')
+                ->with('flash.bannerStyle', 'danger');
+        }
+
+        // Owner visiting their own join link — just redirect to the session
+        if ($session->user_id === Auth::id()) {
+            return redirect()->route('advisor.show', $session->id);
+        }
+
+        // Already a participant — go straight in
+        if ($session->isAccessibleBy(Auth::id())) {
+            return redirect()->route('advisor.show', $session->id);
+        }
+
+        return Inertia::render('Advisor/Join', [
+            'token'       => $token,
+            'sessionId'   => $session->id,
+            'title'       => $session->title ?? 'Untitled session',
+            'agentName'   => $session->agent?->name,
+            'agentColor'  => $session->agent?->color,
+            'ownerName'   => $session->user->name,
+        ]);
+    }
+
+    public function acceptJoin(string $token): \Illuminate\Http\RedirectResponse
+    {
+        $session = AdvisorSession::where('join_token', $token)->firstOrFail();
+
+        if (!$session->isActive()) {
+            return redirect()->route('advisor.index')
+                ->with('flash.banner', 'This session has ended and can no longer be joined.')
+                ->with('flash.bannerStyle', 'danger');
+        }
+
+        if ($session->user_id !== Auth::id()) {
+            $session->participants()->syncWithoutDetaching([
+                Auth::id() => ['joined_at' => now()],
+            ]);
+        }
+
+        return redirect()->route('advisor.show', $session->id);
     }
 
     public function profile(): Response
