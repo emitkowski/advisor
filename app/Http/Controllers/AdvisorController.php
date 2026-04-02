@@ -103,7 +103,7 @@ class AdvisorController extends Controller
 
     public function show(int $sessionId): Response
     {
-        $session = AdvisorSession::with(['agent', 'user:id,name'])->findOrFail($sessionId);
+        $session = AdvisorSession::with(['agent', 'user:id,name', 'participants:id,name'])->findOrFail($sessionId);
 
         if (!$session->isAccessibleBy(Auth::id())) {
             abort(404);

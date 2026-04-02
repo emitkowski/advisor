@@ -14,6 +14,18 @@ const props = defineProps({
 });
 
 const messages = ref(props.session.thread ?? []);
+const sessionParticipants = ref(props.session.participants ?? []);
+const showParticipantsDropdown = ref(false);
+
+const isMultiParticipant = computed(() => sessionParticipants.value.length > 0);
+
+const allSessionPeople = computed(() => {
+    const owner = props.session.user
+        ? [{ id: props.session.user_id, name: props.session.user.name, role: 'owner' }]
+        : [];
+    const participants = sessionParticipants.value.map(p => ({ id: p.id, name: p.name, role: 'participant' }));
+    return [...owner, ...participants];
+});
 
 // Assign a stable color to each unique participant (non-owner sender).
 const PARTICIPANT_COLORS = [
@@ -137,6 +149,9 @@ function startPolling() {
                 messages.value = data.thread;
                 scrollToBottom();
             }
+            if (data.participants) {
+                sessionParticipants.value = data.participants;
+            }
             // Open SSE stream when the last message is from a user (AI is about to respond)
             if (!props.isOwner && !participantEventSource.value) {
                 const last = data.thread?.[data.thread.length - 1];
@@ -230,7 +245,12 @@ function buildMarkdown() {
     lines.push(`**Date:** ${date}`, '', '---', '');
 
     for (const msg of messages.value) {
-        const label = msg.role === 'user' ? '**You**' : `**${agent ?? 'Advisor'}**`;
+        let label;
+        if (msg.role === 'user') {
+            label = msg.user_name ? `**${msg.user_name}**` : '**You**';
+        } else {
+            label = `**${agent ?? 'Advisor'}**`;
+        }
         lines.push(`${label}\n\n${msg.content}`, '');
     }
 
@@ -346,6 +366,7 @@ onMounted(() => {
 function onDocumentClick() {
     showSharePopover.value = false;
     showJoinPopover.value  = false;
+    showParticipantsDropdown.value = false;
 }
 onMounted(() => document.addEventListener('click', onDocumentClick));
 onUnmounted(() => {
@@ -618,6 +639,46 @@ async function rateMessage(index, rating) {
                     <span v-if="sessionTokens.input > 0 || sessionTokens.output > 0" class="hidden sm:inline text-xs text-gray-400 tabular-nums">
                         {{ (sessionTokens.input + sessionTokens.output).toLocaleString() }} tokens · {{ sessionCost }}
                     </span>
+
+                    <!-- Participants roster (multi-participant sessions) -->
+                    <div v-if="isMultiParticipant" class="relative">
+                        <button
+                            @click.stop="showParticipantsDropdown = !showParticipantsDropdown"
+                            title="Session participants"
+                            class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50 transition"
+                            :class="{ 'bg-gray-50': showParticipantsDropdown }"
+                        >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            <span>{{ allSessionPeople.length }}</span>
+                        </button>
+
+                        <div
+                            v-if="showParticipantsDropdown"
+                            class="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-lg border border-gray-200 p-3 z-20"
+                            @click.stop
+                        >
+                            <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2.5">In this session</p>
+                            <ul class="space-y-2">
+                                <li v-for="person in allSessionPeople" :key="person.id" class="flex items-center gap-2">
+                                    <span
+                                        class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
+                                        :class="person.role === 'owner' ? 'bg-gray-200 text-gray-700' : 'bg-blue-100 text-blue-700'"
+                                    >
+                                        {{ person.name.charAt(0).toUpperCase() }}
+                                    </span>
+                                    <span class="text-sm text-gray-800 truncate">{{ person.name }}</span>
+                                    <span
+                                        class="ml-auto text-[10px] font-medium shrink-0"
+                                        :class="person.role === 'owner' ? 'text-gray-400' : 'text-blue-500'"
+                                    >
+                                        {{ person.role }}
+                                    </span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
 
                     <!-- Export as Markdown -->
                     <button
@@ -936,7 +997,7 @@ async function rateMessage(index, rating) {
                                 v-model="input"
                                 @keydown="handleKeydown"
                                 :disabled="isStreaming"
-                                placeholder="Message the advisor…"
+                                :placeholder="isStreaming ? 'Waiting for response…' : 'Message the advisor…'"
                                 rows="2"
                                 class="flex-1 resize-none rounded-xl border border-gray-300 px-3 sm:px-4 py-2 sm:py-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent disabled:opacity-50 transition"
                             />

@@ -72,7 +72,7 @@ class ChatController extends Controller
      */
     public function show(int $sessionId): JsonResponse
     {
-        $session = AdvisorSession::findOrFail($sessionId);
+        $session = AdvisorSession::with(['participants:id,name'])->findOrFail($sessionId);
 
         if (!$session->isAccessibleBy(Auth::id())) {
             abort(404);
