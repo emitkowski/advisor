@@ -3,7 +3,7 @@ name: Deploy
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   test:
@@ -80,8 +80,9 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
+            set -e
             cd ${{ secrets.DEPLOY_PATH }}
-            git pull origin master
+            git pull origin main
             composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
             npm ci
             npm run build
@@ -89,3 +90,4 @@ jobs:
             php artisan storage:link
             php artisan optimize:clear
             php artisan optimize
+            php artisan queue:restart
